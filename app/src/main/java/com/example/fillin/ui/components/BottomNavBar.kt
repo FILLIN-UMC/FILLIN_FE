@@ -2,6 +2,7 @@ package com.example.fillin.ui.components
 
 import android.util.Log
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,10 +21,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Campaign
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Campaign
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -36,12 +37,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -49,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.example.fillin.ui.theme.FILLINTheme
+import com.example.fillin.R
 import kotlin.math.roundToInt
 
 @Composable
@@ -272,28 +274,19 @@ private fun BottomNavItem(
 
 @Composable
 private fun ReportCenterButton(onClick: () -> Unit, scale: Float = 1f) {
-    val shape = RoundedCornerShape(999.dp)
     Box(
         modifier = Modifier
             .size(width = 98.dp * scale, height = 56.dp * scale)
-            .shadow(14.dp, shape, clip = false)
-            .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(Color(0xFF8EC5FF), Color(0xFF4090E0))
-                )
-            )
             .clickable {
                 Log.d("BottomNavTap", "ReportCenterButton tap")
                 onClick()
             },
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = Icons.Outlined.Campaign,
-            contentDescription = null,
-            tint = Color.White,
-            modifier = Modifier.size(30.dp * scale)
+        Image(
+            painter = painterResource(id = R.drawable.ic_report),
+            contentDescription = "제보",
+            modifier = Modifier.fillMaxSize()
         )
     }
 }

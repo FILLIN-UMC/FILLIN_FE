@@ -1,8 +1,13 @@
 package com.example.fillin.feature.mypage
 
+import android.R.attr.contentDescription
 import android.app.Activity
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -27,7 +32,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Close
@@ -77,23 +81,26 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.foundation.layout.offset
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import androidx.navigation.compose.rememberNavController
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.navigation.compose.rememberNavController
+import com.example.fillin.ui.theme.FILLINTheme
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import com.example.fillin.ui.theme.FILLINTheme
 import com.example.fillin.R
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 
 data class ExpiringReportNotice(
     val daysLeft: Int,
@@ -103,6 +110,8 @@ data class ExpiringReportNotice(
 const val ROUTE_PROFILE_EDIT = "profile_edit"
 const val ROUTE_SETTINGS = "settings"
 const val ROUTE_NOTIFICATIONS = "notifications"
+const val ROUTE_MY_REPORTS = "my_reports"
+const val ROUTE_EXPIRING_REPORT_DETAIL = "expiring_report_detail"
 
 
 @Composable
@@ -126,12 +135,17 @@ fun MyPageScreen(
     onShowBottomBar: () -> Unit,
     vm: MyPageViewModel = viewModel()
 ) {
+    // 보이는 상태바(시간/배터리 등)를 위해 밝은 배경 + 어두운 아이콘으로 고정
+    SetStatusBarColor(color = Color.White, darkIcons = true)
+
     val state by vm.uiState.collectAsState()
     MyPageContent(
         uiState = state,
         onNavigateProfileEdit = { navController.navigate(ROUTE_PROFILE_EDIT) },
         onNavigateSettings = { navController.navigate(ROUTE_SETTINGS) },
         onNavigateNotifications = { navController.navigate(ROUTE_NOTIFICATIONS) },
+        onNavigateMyReports = { navController.navigate(ROUTE_MY_REPORTS) },
+        onNavigateExpiringDetail = { navController.navigate(ROUTE_EXPIRING_REPORT_DETAIL) },
         onHideBottomBar = onHideBottomBar,
         onShowBottomBar = onShowBottomBar
     )
@@ -143,6 +157,8 @@ private fun MyPageContent(
     onNavigateProfileEdit: () -> Unit,
     onNavigateSettings: () -> Unit,
     onNavigateNotifications: () -> Unit,
+    onNavigateMyReports: () -> Unit,
+    onNavigateExpiringDetail: () -> Unit,
     onHideBottomBar: () -> Unit,
     onShowBottomBar: () -> Unit
 ) {
@@ -171,6 +187,8 @@ private fun MyPageContent(
                 onNotificationsClick = onNavigateNotifications,
                 onNavigateProfileEdit = onNavigateProfileEdit,
                 onNavigateSettings = onNavigateSettings,
+                onNavigateMyReports = onNavigateMyReports,
+                onNavigateExpiringDetail = onNavigateExpiringDetail,
                 onHideBottomBar = onHideBottomBar,
                 onShowBottomBar = onShowBottomBar,
                 expiringNotice = ExpiringReportNotice(daysLeft = 5, summaryText = "위험 1, 발견 2")
@@ -193,6 +211,8 @@ private fun MyPageSuccess(
     onNotificationsClick: () -> Unit,
     onNavigateProfileEdit: () -> Unit,
     onNavigateSettings: () -> Unit,
+    onNavigateMyReports: () -> Unit,
+    onNavigateExpiringDetail: () -> Unit = { },
     onHideBottomBar: () -> Unit,
     onShowBottomBar: () -> Unit,
     expiringNotice: ExpiringReportNotice? = null
@@ -213,6 +233,8 @@ private fun MyPageSuccess(
     var showExpiringNotice by rememberSaveable(expiringNotice) {
         mutableStateOf(expiringNotice != null)
     }
+    var showBadgeTooltip by remember { mutableStateOf(false) }
+    var badgeInfoIconCenterXInWindow by remember { mutableStateOf<Float?>(null) }
 
     CompositionLocalProvider(
         LocalTextStyle provides LocalTextStyle.current.merge(
@@ -222,6 +244,7 @@ private fun MyPageSuccess(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .padding(horizontal = 16.dp)
         ) {
             // Top-right actions
@@ -309,6 +332,7 @@ private fun MyPageSuccess(
                     ExpiringReportBanner(
                         daysLeft = expiringNotice.daysLeft,
                         summaryText = expiringNotice.summaryText,
+                        onClick = onNavigateExpiringDetail,
                         onDismiss = { showExpiringNotice = false }
                     )
                     Spacer(Modifier.height(12.dp))
@@ -353,59 +377,90 @@ private fun MyPageSuccess(
 
                             Spacer(Modifier.height(6.dp))
 
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                TagChip(
-                                    text = "보안관 6",
-                                    border = Color(0xFFFF6060),
-                                    textColor = Color(0xFFFF6060)
-                                )
-                                TagChip(
-                                    text = "해결사 3",
-                                    border = Color(0xFFF5C72F),
-                                    textColor = Color(0xFFFFB020)
-                                )
-                                TagChip(
-                                    text = "탐험가 2",
-                                    border = Color(0xFF29C488),
-                                    textColor = Color(0xFF22B573)
-                                )
+                            val badgeText = when {
+                                totalReports >= 30 -> "마스터"
+                                totalReports >= 10 -> "베테랑"
+                                else -> "루키"
                             }
+
+                            TagChip(
+                                text = badgeText,
+                                border = Color(0xFF4595E5),
+                                textColor = Color(0xFF4595E5)
+                            )
                         }
-                        Icon(
-                            imageVector = Icons.Outlined.ChevronRight,
-                            contentDescription = null,
-                            tint = Color(0xFFAAADB3)
-                        )
                     }
                 }
                 Spacer(Modifier.height(12.dp))
 
                 // Stats pill
-                StatsPill(totalReports = totalReports, totalViews = totalViews)
+                StatsPill(
+                    totalReports = totalReports,
+                    totalViews = totalViews,
+                    onClick = onNavigateMyReports
+                )
 
                 Spacer(Modifier.height(26.dp))
 
                 Spacer(Modifier.height(22.dp))
 
-                // Mission section title with info icon
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "제보 미션",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color(0xFF252526)
-                    )
-                    Spacer(Modifier.width(6.dp))
+                // Mission section title with info icon + badge tooltip
+                val currentBadge = when {
+                    totalReports >= 30 -> "마스터"
+                    totalReports >= 10 -> "베테랑"
+                    else -> "루키"
+                }
 
-                    Icon(
-                        imageVector = Icons.Outlined.Info,
-                        contentDescription = null,
-                        tint = Color(0xFF68678C),
-                        modifier = Modifier.size(18.dp)
-                    )
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "내가 한 제보",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF252526)
+                        )
+                        Spacer(Modifier.width(6.dp))
+
+                        Icon(
+                            imageVector = Icons.Outlined.Info,
+                            contentDescription = "뱃지 기준 안내",
+                            tint = Color(0xFF86878C),
+                            modifier = Modifier
+                                .size(18.dp)
+                                .onGloballyPositioned { coordinates ->
+                                    val b = coordinates.boundsInWindow()
+                                    badgeInfoIconCenterXInWindow = b.left + (b.width / 2f)
+                                }
+                                .clickable { showBadgeTooltip = true }
+                        )
+                    }
+
+                    if (showBadgeTooltip) {
+                        androidx.compose.ui.window.Popup(
+                            alignment = Alignment.TopStart,
+                            onDismissRequest = { showBadgeTooltip = false },
+                            properties = androidx.compose.ui.window.PopupProperties(
+                                focusable = true
+                            )
+                        ) {
+                            // Tooltip bubble (fixed width like the design)
+                            Box(
+                                modifier = Modifier
+                                    .padding(top = 28.dp) // below the title row
+                                    .padding(start = 4.dp)
+                            ) {
+                                BadgeLevelTooltip(
+                                    currentBadge = currentBadge,
+                                    iconCenterXInWindow = badgeInfoIconCenterXInWindow,
+                                    modifier = Modifier
+                                        .width(332.dp)
+                                )
+                            }
+                        }
+                    }
                 }
 
                 Spacer(Modifier.height(12.dp))
@@ -476,21 +531,36 @@ private fun MyPageSuccess(
 @Composable
 private fun TagChip(
     text: String,
-    border: Color,
-    textColor: Color
+    border: Color = Color.Transparent,
+    textColor: Color = Color.Unspecified
 ) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = Color.Transparent,
-        border = androidx.compose.foundation.BorderStroke(1.dp, border)
-    ) {
-        Text(
-            text = text,
-            color = textColor,
-            fontWeight = FontWeight.ExtraBold,
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+    val gradient = Brush.radialGradient(
+        colors = listOf(
+            Color(0xFF002BFF),
+            Color(0xFF28EDFF),
+            Color(0xFF002BFF)
         )
+    )
+
+    Surface(
+        modifier = Modifier.size(width = 44.dp, height = 24.dp),
+        shape = RoundedCornerShape(6.dp),
+        color = Color.White,
+        border = BorderStroke(2.dp, gradient)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                fontSize = 12.sp,
+                lineHeight = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+                style = TextStyle(brush = gradient)
+            )
+        }
     }
 }
 
@@ -548,6 +618,36 @@ private fun SavedReportCard(
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .align(Alignment.TopCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Black.copy(alpha = 0.45f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.55f)
+                            )
+                        )
+                    )
             )
 
             // top-left badge
@@ -625,9 +725,15 @@ private fun CircleIconButton(icon: ImageVector, onClick: () -> Unit) {
 }
 
 @Composable
-private fun StatsPill(totalReports: Int, totalViews: Int) {
+private fun StatsPill(
+    totalReports: Int,
+    totalViews: Int,
+    onClick: () -> Unit
+) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
         color = Color(0xFFF7FBFF),
         shape = RoundedCornerShape(14.dp)
     ) {
@@ -838,6 +944,8 @@ private fun MyPageScreenPreview() {
             onNavigateProfileEdit = {},
             onNavigateSettings = {},
             onNavigateNotifications = {},
+            onNavigateMyReports = {},
+            onNavigateExpiringDetail = {},
             onHideBottomBar = {},
             onShowBottomBar = {}
         )
@@ -855,72 +963,13 @@ private fun ProfileEditScreenPreview() {
     }
 }
 
+@Preview(showBackground = true, name = "Settings")
 @Composable
-fun NotificationsScreen(navController: NavController) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.White)
-            .padding(horizontal = 16.dp)
-    ) {
-        // Top bar (matches design)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 0.dp)
-        ) {
-            // Back circular button
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape)
-                    .background(Color.White)
-                    .border(2.dp, Color(0xFFE7EBF2), CircleShape)
-                    .clickable { navController.popBackStack() }
-                    .align(Alignment.CenterStart),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.ArrowBack,
-                    contentDescription = null,
-                    tint = Color(0xFFAAADB3),
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-
-            Text(
-                text = "알림",
-                fontWeight = FontWeight.ExtraBold,
-                color = Color(0xFF252526),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.align(Alignment.Center)
-            )
-        }
-
-        // Space so the empty state sits like the reference
-        Spacer(Modifier.height(140.dp))
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Notifications,
-                contentDescription = null,
-                tint = Color(0xFFAAADB3),
-                modifier = Modifier.size(34.dp)
-            )
-            Spacer(Modifier.height(16.dp))
-            Text(
-                text = "아직 받은 알림이 없어요",
-                color = Color(0xFFAAADB3),
-                fontWeight = FontWeight.SemiBold
-            )
-        }
+private fun SettingsScreenPreview() {
+    FILLINTheme {
+        SettingsScreen(navController = rememberNavController())
     }
 }
-
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -932,6 +981,15 @@ fun ProfileEditScreen(
     var isNicknameChecked by rememberSaveable { mutableStateOf(false) }
     var isNicknameAvailable by rememberSaveable { mutableStateOf(false) }
 
+    // 프로필 이미지 선택(앨범 시스템 모달)
+    var profileImageUri by remember { mutableStateOf<Uri?>(null) }
+    val pickProfileImageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        // TODO: 실제로는 ViewModel/서버 업로드 등과 연결
+        profileImageUri = uri
+    }
+
     val maxLen = 15
     val count = nickname.text.length.coerceAtMost(maxLen)
 
@@ -939,6 +997,7 @@ fun ProfileEditScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.White)
+            .statusBarsPadding()
             .padding(horizontal = 16.dp)
     ) {
         // Top bar: left circular back button + centered title
@@ -968,49 +1027,45 @@ fun ProfileEditScreen(
                 text = "프로필 편집",
                 fontWeight = FontWeight.ExtraBold,
                 color = Color(0xFF111827),
-                fontSize = 22.sp,
-                lineHeight = 22.sp,
+                fontSize = 20.sp,
+                lineHeight = 20.sp,
                 modifier = Modifier.align(Alignment.Center)
             )
         }
 
         Spacer(Modifier.height(22.dp))
 
-        // Avatar
+        // Profile image + edit icon (Frame 957 스타일)
         Box(
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
-                .size(140.dp)
+                .size(100.dp) // Box size == profile image size
+                .clickable {
+                    pickProfileImageLauncher.launch("image/*")
+                },
+            contentAlignment = Alignment.Center
         ) {
-            Box(
+            // 사용자 프로필 이미지
+            Image(
+                painter = painterResource(id = R.drawable.ic_profile_img),
+                contentDescription = "사용자 프로필 이미지",
                 modifier = Modifier
                     .matchParentSize()
-                    .clip(CircleShape)
-                    .background(Color(0xFFAAADB3)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Person,
-                    contentDescription = null,
-                    tint = Color(0xFFF7FBFF),
-                    modifier = Modifier.size(86.dp)
-                )
-            }
-            Box(
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop
+            )
+
+            // 우측 하단 프로필 이미지 편집 아이콘
+            Image(
+                painter = painterResource(id = R.drawable.ic_profile_img_edit),
+                contentDescription = "프로필 이미지 편집",
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .size(24.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFAAADB3)),
-//                    .border(1.dp, Color.White, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Image(
-                    painter = painterResource(id = R.drawable.ic_image_edit),
-                    contentDescription = "프로필 이미지 편집",
-                    modifier = Modifier.size(24.dp)
-                )
-            }
+                    // 아이콘을 살짝 바깥쪽으로 밀어내서 아바타와 겹치도록
+                    .offset(x = -15.dp, y = -15.dp)
+                    .size(24.dp),
+                contentScale = ContentScale.Fit
+            )
         }
 
         Spacer(Modifier.height(34.dp))
@@ -1029,7 +1084,7 @@ fun ProfileEditScreen(
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                text = "$count/$maxLen",
+                text = "$count/${maxLen}자",
                 color = Color(0xFF555659),
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 12.sp,
@@ -1101,8 +1156,10 @@ fun ProfileEditScreen(
                     .clip(RoundedCornerShape(14.dp))
                     .clickable(enabled = canCheck) {
                         // TODO: 실제 API 연결 시 결과에 따라 isNicknameAvailable 값 설정
+                        // 임시 로직: 특정 닉네임은 이미 존재한다고 가정
+                        val takenNicknames = setOf("가나다")
                         isNicknameChecked = true
-                        isNicknameAvailable = true
+                        isNicknameAvailable = nickname.text.trim() !in takenNicknames
                     },
                 shape = RoundedCornerShape(14.dp),
                 color = checkBg
@@ -1121,10 +1178,13 @@ fun ProfileEditScreen(
 
         Spacer(Modifier.height(12.dp))
 
-        if (isNicknameChecked && isNicknameAvailable) {
+        if (isNicknameChecked) {
+            val msg = if (isNicknameAvailable) "사용 가능한 닉네임이에요!" else "이미 존재하는 닉네임이에요."
+            val msgColor = if (isNicknameAvailable) Color(0xFF4595E5) else Color(0xFFE54545)
+
             Text(
-                text = "사용 가능한 닉네임이에요!",
-                color = Color(0xFF4595E5),
+                text = msg,
+                color = msgColor,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 16.sp,
                 lineHeight = 16.sp,
@@ -1164,72 +1224,180 @@ fun ProfileEditScreen(
 @Composable
 fun SettingsScreen(navController: NavController) {
     var reportNoti by rememberSaveable { mutableStateOf(true) }
-    var communityNoti by rememberSaveable { mutableStateOf(true) }
     var feedbackNoti by rememberSaveable { mutableStateOf(true) }
     var serviceNoti by rememberSaveable { mutableStateOf(true) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(Color.White)
             .statusBarsPadding()
     ) {
         // Top bar
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .padding(top = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .height(56.dp)
         ) {
-            IconButton(onClick = { navController.popBackStack() }) {
-                Icon(Icons.Outlined.ArrowBack, contentDescription = null, tint = Color(0xFFAAADB3))
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(Color.White)
+                    .clickable { navController.popBackStack() }
+                    .align(Alignment.CenterStart),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_back_btn),
+                    contentDescription = "뒤로가기",
+                    modifier = Modifier.size(48.dp)
+                )
             }
-            Spacer(Modifier.width(6.dp))
-            Text("설정", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+
+            Text(
+                text = "설정",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color(0xFF111827),
+                fontSize = 20.sp,
+                lineHeight = 20.sp,
+                modifier = Modifier.align(Alignment.Center)
+            )
         }
 
-        Spacer(Modifier.height(10.dp))
+        // Content
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+        ) {
+            Spacer(Modifier.height(20.dp))
 
-        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-            Text("알림 설정", color = Color(0xFF9CA3AF), style = MaterialTheme.typography.labelSmall)
-            Spacer(Modifier.height(10.dp))
+            // Section: 알림 설정
+            Text(
+                text = "알림 설정",
+                    color = Color(0xFFAAADB3),
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
+                lineHeight = 16.sp
+            )
+            Spacer(Modifier.height(16.dp))
 
-            SettingToggleRow("제보 알림", reportNoti) { reportNoti = it }
-            SettingToggleRow("커뮤니티 알림", communityNoti) { communityNoti = it }
-            SettingToggleRow("피드백 알림", feedbackNoti) { feedbackNoti = it }
-            SettingToggleRow("서비스 알림", serviceNoti) { serviceNoti = it }
+            SettingToggleRow(
+                title = "제보 알림",
+                subtitle = "가까운 위치의 새로운 제보에 대한 정보 알림",
+                checked = reportNoti,
+                onCheckedChange = { reportNoti = it }
+            )
+            Spacer(Modifier.height(18.dp))
+
+            SettingToggleRow(
+                title = "피드백 알림",
+                subtitle = "다른 사용자가 나의 제보에 대한 피드백 반응 시 알림",
+                checked = feedbackNoti,
+                onCheckedChange = { feedbackNoti = it }
+            )
 
             Spacer(Modifier.height(18.dp))
 
-            Text("이용 약관", color = Color(0xFF9CA3AF), style = MaterialTheme.typography.labelSmall)
-            Spacer(Modifier.height(10.dp))
+            SettingToggleRow(
+                title = "서비스 알림",
+                subtitle = "공지사항이나 이벤트, 업데이트 등 알림",
+                checked = serviceNoti,
+                onCheckedChange = { serviceNoti = it }
+            )
 
-            SettingLinkRow("필인 지도 서비스 이용약관") { /* TODO */ }
-            SettingLinkRow("필인 개인정보처리방침") { /* TODO */ }
+            Spacer(Modifier.height(32.dp))
+            HorizontalDivider(color = Color(0xFFE7EBF2), thickness = 1.dp)
+            Spacer(Modifier.height(32.dp))
 
-            Spacer(Modifier.height(22.dp))
+            // Section: 이용 정보
+            Text(
+                text = "이용 정보",
+                color = Color(0xFFAAADB3),
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                lineHeight = 14.sp
+            )
+            Spacer(Modifier.height(16.dp))
 
-            Text("로그아웃", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(vertical = 10.dp))
-            Text("탈퇴하기", fontWeight = FontWeight.SemiBold)
+            SettingLinkRow(
+                title = "필인 지도 서비스 이용약관",
+                onClick = { /* TODO */ }
+            )
+            Spacer(Modifier.height(20.dp))
+
+            SettingLinkRow(
+                title = "필인 개인정보처리방침",
+                onClick = { /* TODO */ }
+            )
+
+            Spacer(Modifier.height(32.dp))
+            HorizontalDivider(color = Color(0xFFE7EBF2), thickness = 1.dp)
+            Spacer(Modifier.height(32.dp))
+
+            Text(
+                text = "로그아웃",
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF252526),
+                fontSize = 18.sp,
+                lineHeight = 18.sp
+            )
+
+            Spacer(Modifier.height(20.dp))
+
+            Text(
+                text = "탈퇴하기",
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF252526),
+                fontSize = 18.sp,
+                lineHeight = 18.sp
+            )
+
+            Spacer(Modifier.height(24.dp))
         }
     }
 }
 
 @Composable
-private fun SettingToggleRow(title: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun SettingToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(title, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color(0xFF252526),
+                fontSize = 18.sp,
+                lineHeight = 18.sp
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = subtitle,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFFAAADB3),
+                fontSize = 12.sp,
+                lineHeight = 12.sp
+            )
+        }
+
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
-                checkedTrackColor = Color(0xFF2F80ED)
+                checkedTrackColor = Color(0xFF4595E5),
+                uncheckedThumbColor = Color.White,
+                uncheckedTrackColor = Color(0xFFE7EBF2)
             )
         )
     }
@@ -1240,12 +1408,18 @@ private fun SettingLinkRow(title: String, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
+            .clickable(onClick = onClick),
+//            .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(title, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-        Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = Color(0xFF9CA3AF))
+        Text(
+            text = title,
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFF252526),
+            fontSize = 18.sp,
+            lineHeight = 18.sp,
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 
@@ -1253,13 +1427,15 @@ private fun SettingLinkRow(title: String, onClick: () -> Unit) {
 private fun ExpiringReportBanner(
     daysLeft: Int,
     summaryText: String,
+    onClick: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val shape = RoundedCornerShape(8.dp)
 
     Surface(
         modifier = Modifier
-            .fillMaxWidth(),
+            .fillMaxWidth()
+        .clickable(onClick = onClick),
         color = Color(0xFFF7FBFF),
         shape = shape
     ) {
@@ -1298,7 +1474,7 @@ private fun ExpiringReportBanner(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                
+
                 Text(
                     text = summaryText,
                     fontWeight = FontWeight.SemiBold,
@@ -1364,3 +1540,95 @@ private fun ExpiringReportBanner(
         }
     }
 }
+
+@Composable
+private fun BadgeLevelTooltip(
+    currentBadge: String,
+    iconCenterXInWindow: Float?,
+    modifier: Modifier = Modifier
+) {
+    val bubbleShape = RoundedCornerShape(14.dp)
+    var bubbleLeftXInWindow by remember { mutableStateOf<Float?>(null) }
+
+    Box(modifier = modifier) {
+        // Pointer triangle that aims at the info icon (comic balloon style)
+        androidx.compose.foundation.Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(12.dp)
+                .align(Alignment.TopStart)
+        ) {
+            val triW = 22.dp.toPx()
+            val triH = 12.dp.toPx()
+
+            val bubbleLeft = bubbleLeftXInWindow
+            val iconX = iconCenterXInWindow
+
+            // Default to center until we have coordinates
+            val targetCenterX = if (bubbleLeft != null && iconX != null) {
+                (iconX - bubbleLeft).coerceIn(0f, size.width)
+            } else {
+                size.width / 2f
+            }
+
+            val startX = (targetCenterX - triW / 2f).coerceIn(0f, size.width - triW)
+
+            val path = androidx.compose.ui.graphics.Path().apply {
+                moveTo(startX, triH)
+                lineTo(startX + triW / 2f, 0f)
+                lineTo(startX + triW, triH)
+                close()
+            }
+
+            // subtle shadow under the pointer
+            drawPath(path, color = Color(0x1A000000))
+            drawPath(path, color = Color.White)
+        }
+
+        // Bubble
+        Box(
+            modifier = Modifier
+                .padding(top = 10.dp)
+                .onGloballyPositioned { coordinates ->
+                    bubbleLeftXInWindow = coordinates.boundsInWindow().left
+                }
+                .shadow(elevation = 20.dp, shape = bubbleShape, clip = false)
+                .clip(bubbleShape)
+                .background(Color.White)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "현재 뱃지 레벨",
+                        color = Color(0xFF252526),
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp,
+                        lineHeight = 12.sp
+                    )
+                    Spacer(Modifier.width(10.dp))
+
+                    TagChip(
+                        text = currentBadge,
+                        border = Color(0xFF4595E5),
+                        textColor = Color(0xFF4595E5)
+                    )
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                Text(
+                    text = "총 제보 개수에 따라 루키(0~9개), 베테랑(10~29개),\n마스터(30개~) 뱃지가 제공돼요.",
+                    color = Color(0xFF252526),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp
+                )
+            }
+        }
+    }
+}
+
