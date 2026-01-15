@@ -6,6 +6,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Campaign
 import androidx.compose.material.icons.outlined.History // 지난 상황용 아이콘 예시
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -24,20 +25,23 @@ fun ReportOptionMenu(
 ) {
     Surface(
         modifier = modifier
-            .width(200.dp)
-            .shadow(12.dp, RoundedCornerShape(20.dp)),
-        shape = RoundedCornerShape(20.dp),
+            .width(160.dp)
+            .shadow(8.dp, RoundedCornerShape(16.dp)),
+        shape = RoundedCornerShape(16.dp),
         color = Color.White
     ) {
         Column {
             // 지난 상황 제보
             ReportMenuItem(
-                icon = Icons.Outlined.History,
+                icon = Icons.Outlined.Image,
                 label = "지난 상황 제보",
                 onClick = onPastReportClick
             )
-
-            HorizontalDivider(color = Color(0xFFF5F5F5))
+            //  중간 구분선
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp), // 선 좌우에 여백을 주어 깔끔하게
+                thickness = 0.5.dp,
+                color = Color(0xFFEEEEEE) // 연한 회색으로 구분선 설정
+            )
 
             // 실시간 제보
             ReportMenuItem(

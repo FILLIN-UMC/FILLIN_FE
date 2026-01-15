@@ -1,7 +1,19 @@
+import java.util.Properties
+
+
+// 2. local.properties 파일을 읽어오는 로직 추가
+val properties = Properties().apply {
+    val propertiesFile = project.rootProject.file("local.properties")
+    if (propertiesFile.exists()) {
+        load(propertiesFile.inputStream())
+    }
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.google.services)
 }
 
 android {
@@ -16,6 +28,8 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        val apiKey = properties.getProperty("GEMINI_API_KEY") ?: ""
+        buildConfigField("String", "GEMINI_API_KEY", "\"$apiKey\"")
     }
 
     buildTypes {
@@ -36,6 +50,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true // BuildConfig 클래스를 생성하도록 설정
     }
 }
 
@@ -68,6 +83,20 @@ dependencies {
     implementation("androidx.camera:camera-view:${camerax_version}")
     // Coil (이미지 로딩 라이브러리) 추가
     implementation("io.coil-kt:coil-compose:2.5.0")
+    // 1. Firebase BoM (Bill of Materials) 추가
+    // 이 줄이 있으면 다른 Firebase 라이브러리의 버전을 일일이 적지 않아도 서로 호환되는 버전을 자동으로 맞춰줍니다.
+    implementation(platform("com.google.firebase:firebase-bom:33.1.2"))
+
+    // 2. [필수] 코루틴 Play Services 지원 라이브러리
+    // 유저님이 짠 Repository 코드의 '.await()' 기능이 작동하려면 이 라이브러리가 반드시 필요합니다.
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
+
+    // 3. (선택) Firebase 분석 도구
+    implementation("com.google.firebase:firebase-analytics-ktx")
+
+    // 기존에 있던 것들 (버전 숫자를 지워도 BoM이 관리해줍니다)
+    implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("com.google.firebase:firebase-storage-ktx")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

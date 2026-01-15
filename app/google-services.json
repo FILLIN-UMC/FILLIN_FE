@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1054944249038",
+    "project_id": "fillin-c51cc",
+    "storage_bucket": "fillin-c51cc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1054944249038:android:9eae839e142e61b2237c9f",
+        "android_client_info": {
+          "package_name": "com.example.fillin2"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCodP7BCAAd_kDdNifQk4WD_d7aqW-7jH8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

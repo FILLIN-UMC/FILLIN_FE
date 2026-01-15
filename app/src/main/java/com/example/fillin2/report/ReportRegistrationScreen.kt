@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
@@ -31,6 +32,7 @@ import coil.compose.AsyncImage
 
 @Composable
 fun ReportRegistrationScreen(
+    topBarTitle: String, // ★ 타이틀을 외부에서 받도록 추가
     imageUri: Uri?,
     initialTitle: String,
     initialLocation: String,
@@ -41,7 +43,8 @@ fun ReportRegistrationScreen(
     var selectedCategory by remember { mutableStateOf("위험") }
     var title by remember { mutableStateOf(initialTitle) }
     var location by remember { mutableStateOf(initialLocation) }
-
+    // 공백을 제외한 글자 수를 계산하는 변수를 미리 선언합니다.
+    val pureCharCount = title.count { !it.isWhitespace() }
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = Color.White
@@ -50,7 +53,7 @@ fun ReportRegistrationScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 24.dp)
         ) {
             // 상단 바
             Box(modifier = Modifier.fillMaxWidth().height(56.dp)) {
@@ -58,7 +61,7 @@ fun ReportRegistrationScreen(
                     Icon(Icons.Default.Close, contentDescription = "닫기")
                 }
                 Text(
-                    text = "실시간 제보",
+                    text = topBarTitle, // ★ 하드코딩된 "실시간 제보"를 변수로 변경!
                     modifier = Modifier.align(Alignment.Center),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
@@ -66,17 +69,19 @@ fun ReportRegistrationScreen(
             }
 
             // 제보 사진 미리보기
-            AsyncImage(
-                model = imageUri,
-                contentDescription = null,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp)
-                    .clip(RoundedCornerShape(16.dp)),
-                contentScale = ContentScale.Crop
-            )
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                AsyncImage(
+                    model = imageUri,
+                    contentDescription = null,
+                    modifier = Modifier
+                      //  .fillMaxWidth()
+                        .size(260.dp) // 시안의 비율에 맞춰 정사각형에 가깝게 조정
+                        .clip(RoundedCornerShape(24.dp)),
+                    contentScale = ContentScale.Crop
+                )
+            }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(16.dp))
 
             // 1. 카테고리 선택
             Text("카테고리", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
@@ -86,8 +91,14 @@ fun ReportRegistrationScreen(
                 CategorySelectChip("발견", Icons.Default.Visibility, Color(0xFF4DB6AC), selectedCategory == "발견") { selectedCategory = "발견" }
             }
 
+            Spacer(Modifier.height(32.dp))
+
             // 2. 제목 (AI 자동 작성)
-            Text("제목", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+                Text("제목", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.width(6.dp)) // '제목'과 숫자 사이의 간격
+                Text("$pureCharCount/15자", style = MaterialTheme.typography.labelMedium, color = Color.Gray) // 글자 수
+            }
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
@@ -110,6 +121,8 @@ fun ReportRegistrationScreen(
                     focusedBorderColor = Color(0xFF4090E0)
                 )
             )
+
+            Spacer(Modifier.height(16.dp))
 
             // 3. 장소 (현재 위치 자동 입력)
             Text("장소", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
@@ -163,6 +176,7 @@ fun ReportRegistrationScreen(
             ) {
                 Text("등록하기", fontWeight = FontWeight.Bold, color = Color.White)
             }
+            Spacer(Modifier.height(35.dp))
         }
     }
 }

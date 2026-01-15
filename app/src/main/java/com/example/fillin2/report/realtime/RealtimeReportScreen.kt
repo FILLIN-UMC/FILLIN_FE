@@ -1,4 +1,4 @@
-package com.example.fillin2.report
+package com.example.fillin2.report.realtime
 
 import android.content.Context
 import android.net.Uri
@@ -22,6 +22,8 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.LifecycleOwner
 import coil.compose.AsyncImage
 import java.io.File
 import java.util.concurrent.ExecutorService
@@ -155,7 +157,7 @@ fun CameraTopBar(title: String, onClose: () -> Unit) {
 @Composable
 fun CameraPreview(
     previewView: PreviewView,
-    lifecycleOwner: androidx.lifecycle.LifecycleOwner,
+    lifecycleOwner: LifecycleOwner,
     imageCapture: ImageCapture
 ) {
     val context = LocalContext.current
@@ -180,7 +182,7 @@ fun CameraPreview(
             } catch (e: Exception) {
                 Log.e("CameraX", "Binding failed", e)
             }
-        }, androidx.core.content.ContextCompat.getMainExecutor(context))
+        }, ContextCompat.getMainExecutor(context))
     }
 }
 

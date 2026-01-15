@@ -20,20 +20,63 @@ class GeminiViewModel(private val repository: GeminiRepository) : ViewModel() {
     fun analyzeImage(context: Context, uri: Uri, apiKey: String) {
         viewModelScope.launch {
             isAnalyzing = true // 로딩 시작
+            Log.d("FILLIN_DEBUG", "========================================")
+            Log.d("FILLIN_DEBUG", "ViewModel: analyzeImage 시작")
+            Log.d("FILLIN_DEBUG", "이미지 URI: $uri")
+            Log.d("FILLIN_DEBUG", "API 키 길이: ${apiKey.length}")
+            Log.d("FILLIN_DEBUG", "========================================")
+
             try {
                 // GeminiRepository의 분석 함수 호출
+                Log.d("FILLIN_DEBUG", "Repository 호출 시작...")
                 val result = repository.fetchAiAnalysis(context, uri, apiKey)
+                Log.d("FILLIN_DEBUG", "Repository 호출 성공!")
+                Log.d("FILLIN_DEBUG", "받은 결과: $result")
                 aiResult = result // 결과 저장
-            } catch (e: Exception) {
-                if (e is retrofit2.HttpException) {
-                    // 구글 서버가 보낸 에러 상세 내용 (예: "모델 이름이 틀림", "지역 제한" 등)을 출력합니다.
-                    val errorBody = e.response()?.errorBody()?.string()
-                    Log.e("FILLIN_DEBUG", "HTTP 에러 상세: $errorBody")
-                }
-                Log.e("FILLIN_DEBUG", "AI 분석 에러 발생: ${e.message}")
+
+            } catch (e: retrofit2.HttpException) {
+                // HTTP 에러 (400, 404, 500 등)
+                val errorBody = e.response()?.errorBody()?.string()
+                Log.e("FILLIN_DEBUG", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                Log.e("FILLIN_DEBUG", "❌ HTTP 에러 발생!")
+                Log.e("FILLIN_DEBUG", "에러 코드: ${e.code()}")
+                Log.e("FILLIN_DEBUG", "에러 메시지: ${e.message()}")
+                Log.e("FILLIN_DEBUG", "HTTP 에러 상세: $errorBody")
+                Log.e("FILLIN_DEBUG", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 aiResult = "분석 실패"
+
+            } catch (e: java.net.UnknownHostException) {
+                // 인터넷 연결 없음
+                Log.e("FILLIN_DEBUG", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                Log.e("FILLIN_DEBUG", "❌ 인터넷 연결 없음!")
+                Log.e("FILLIN_DEBUG", "WiFi 또는 모바일 데이터를 확인하세요")
+                Log.e("FILLIN_DEBUG", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                aiResult = "분석 실패"
+
+            } catch (e: java.net.SocketTimeoutException) {
+                // 타임아웃
+                Log.e("FILLIN_DEBUG", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                Log.e("FILLIN_DEBUG", "❌ 서버 응답 시간 초과!")
+                Log.e("FILLIN_DEBUG", "네트워크가 느리거나 서버 문제일 수 있습니다")
+                Log.e("FILLIN_DEBUG", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                aiResult = "분석 실패"
+
+            } catch (e: Exception) {
+                // 기타 모든 에러
+                Log.e("FILLIN_DEBUG", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                Log.e("FILLIN_DEBUG", "❌ 예상치 못한 에러 발생!")
+                Log.e("FILLIN_DEBUG", "에러 타입: ${e.javaClass.simpleName}")
+                Log.e("FILLIN_DEBUG", "에러 메시지: ${e.message}")
+                Log.e("FILLIN_DEBUG", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                e.printStackTrace()
+                aiResult = "분석 실패"
+
             } finally {
                 isAnalyzing = false // 로딩 종료
+                Log.d("FILLIN_DEBUG", "========================================")
+                Log.d("FILLIN_DEBUG", "ViewModel: analyzeImage 종료")
+                Log.d("FILLIN_DEBUG", "최종 결과: $aiResult")
+                Log.d("FILLIN_DEBUG", "========================================")
             }
         }
     }

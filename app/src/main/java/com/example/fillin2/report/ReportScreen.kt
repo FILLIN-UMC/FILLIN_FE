@@ -5,8 +5,10 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
@@ -22,26 +24,35 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.fillin2.BuildConfig
 import com.example.fillin2.R
 import com.example.fillin2.ai.GeminiRepository
 import com.example.fillin2.ai.GeminiViewModel
 import com.example.fillin2.ai.GeminiViewModelFactory
 import com.example.fillin2.components.BottomNavBar
 import com.example.fillin2.components.TabSpec
+import com.example.fillin2.db.FirestoreRepository
 import com.example.fillin2.kakao.Place
 import com.example.fillin2.kakao.RetrofitClient
 import com.example.fillin2.map.MapContent
 import com.example.fillin2.map.PresentLocation
 import com.example.fillin2.report.locationselect.LocationSelectionScreen
+import com.example.fillin2.report.pastreport.PastReportLocationScreen
+import com.example.fillin2.report.pastreport.PastReportPhotoSelectionScreen
+import com.example.fillin2.report.realtime.RealtimeReportScreen
 import com.example.fillin2.search.RouteSelectionScreen
 import com.example.fillin2.search.SearchScreen
 import com.example.fillin2.search.SearchViewModel
@@ -53,7 +64,7 @@ fun ReportScreen(searchViewModel: SearchViewModel = viewModel()) {
     var selectedRoute by remember { mutableStateOf("home") }
     var showReportMenu by remember { mutableStateOf(false) } // 제보 메뉴 표시 여부
     var isSearching by remember { mutableStateOf(false) } // 검색 모드 상태
-
+    var isPastFlow by remember { mutableStateOf(false) } // 현재 지난 상황 제보 흐름인지 확인
     // [추가] 카메라 화면 표시 여부 상태
     var showCamera by remember { mutableStateOf(false) }
 
@@ -86,6 +97,27 @@ fun ReportScreen(searchViewModel: SearchViewModel = viewModel()) {
     // [추가] 위치 선택 모드 상태 관리
     var isMapPickingMode by remember { mutableStateOf(false) }
     var finalLocation by remember { mutableStateOf("") } // 확정된 주소 저장
+
+    var isPastReportLocationMode by remember { mutableStateOf(false) } // 위치 설정 단계
+    var isPastReportPhotoStage by remember { mutableStateOf(false) }     // 사진 선택 단계
+
+    // --- [추가: DB 저장 및 상태 관리를 위한 설정] ---
+    val firestoreRepository = remember { FirestoreRepository() }
+    val reportViewModel: ReportViewModel = viewModel(factory = ReportViewModelFactory(firestoreRepository))
+
+    // 업로드 결과 관찰 및 알림 처리
+    LaunchedEffect(reportViewModel.uploadStatus) {
+        if (reportViewModel.uploadStatus == true) {
+            Toast.makeText(context, "제보가 성공적으로 등록되었습니다!", Toast.LENGTH_SHORT).show()
+            // 등록 성공 시 상태 초기화
+            capturedUri = null
+            geminiViewModel.clearResult()
+            reportViewModel.resetStatus()
+        } else if (reportViewModel.uploadStatus == false) {
+            Toast.makeText(context, "등록에 실패했습니다. 다시 시도해주세요.", Toast.LENGTH_SHORT).show()
+            reportViewModel.resetStatus()
+        }
+    }
 
     // 1. 권한 요청 도구 (Launcher) 선언
     val locationPermissionLauncher = rememberLauncherForActivityResult(
@@ -149,11 +181,14 @@ fun ReportScreen(searchViewModel: SearchViewModel = viewModel()) {
 
                 // 바텀 네비게이션
                 BottomNavBar(
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp) // ★ 좌우 16dp 마진
+                        .padding(bottom = 40.dp),    // ★ 하단 40dp 마진
                     selectedRoute = selectedRoute,
                     home = homeTab,
                     report = reportTab,
                     my = myTab,
-                    onSearchClick = { isSearching = true }, // ★ 클릭 시 검색창 활성화
+                   // onSearchClick = { isSearching = true }, // ★ 클릭 시 검색창 활성화
                     onTabClick = { route -> selectedRoute = route },
                     onReportClick = { showReportMenu = !showReportMenu } // 버튼 누르면 메뉴 토글
                 )
@@ -199,16 +234,19 @@ fun ReportScreen(searchViewModel: SearchViewModel = viewModel()) {
 
         // [1. 제보 등록 화면 오버레이]
         // AI 분석 결과가 있고, 지도 선택 모드가 아닐 때만 띄웁니다.
-        if (geminiViewModel.aiResult.isNotEmpty() && !isMapPickingMode) {
+        if (geminiViewModel.aiResult.isNotEmpty() && !isMapPickingMode && !isPastReportPhotoStage && !isPastReportLocationMode && !isPastFlow) {
             ReportRegistrationScreen(
+                topBarTitle = "실시간 제보", // 실시간으로 전달
                 imageUri = capturedUri,
                 initialTitle = geminiViewModel.aiResult, // AI가 분석한 명사 제목
                 initialLocation = finalLocation.ifEmpty { "서울시 용산구 행복대로 392" }, // 주소 반영
                 onLocationFieldClick = { isMapPickingMode = true }, // 클릭 시 지도 모드로 전환
                 onDismiss = { geminiViewModel.clearResult() },
                 onRegister = { category, title, location ->
-                    // 최종 등록 로직
-                    geminiViewModel.clearResult()
+                    // [수정] DB 업로드 로직 연결
+                    capturedUri?.let { uri ->
+                        reportViewModel.uploadReport(category, title, location, uri)
+                    }
                 }
             )
         }
@@ -239,8 +277,13 @@ fun ReportScreen(searchViewModel: SearchViewModel = viewModel()) {
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 120.dp), // 하단 바 위쪽에 배치
-                onPastReportClick = { showReportMenu = false },
+                onPastReportClick = {
+                    showReportMenu = false          // 1. 메뉴 팝업 닫기
+                    isPastFlow = true           // ★ 지난 상황 흐름 시작
+                    isPastReportLocationMode = true // 2. 위치 설정 화면 켜기
+                                    },
                 onRealtimeReportClick = { showReportMenu = false
+                    isPastFlow = false          // ★ 실시간 흐름 시작
                     val permissionCheckResult = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
                     if (permissionCheckResult == PackageManager.PERMISSION_GRANTED) {
                         // 이미 권한이 있으면 바로 카메라 켬
@@ -260,12 +303,11 @@ fun ReportScreen(searchViewModel: SearchViewModel = viewModel()) {
                 onReportSubmit = { uri ->
                     capturedUri = uri
                     showCamera = false
-                    // ★ 사진 촬영 완료 즉시 Gemini AI 분석 시작!
+                    //  사진 촬영 완료 즉시 Gemini AI 분석 시작!
                     geminiViewModel.analyzeImage(
                         context = context,
                         uri = uri,
-                        apiKey = "AIzaSyCVgJTOLSfJgybdu4pn-Ftw6rbMif3Gzes"
-                        // 일단은 테스트 단계이므로 직접 입력 방식 사용.
+                        apiKey = BuildConfig.GEMINI_API_KEY // 이제 자동으로 안전한 키를 불러옵니다!
                         // 보안 강화 방식 (권장): 프로젝트 루트 폴더의 local.properties 파일에 GEMINI_API_KEY=AIza... 형식으로 저장한 뒤,
                         // BuildConfig를 통해 불러오는 방식입니다.
                     )
@@ -273,30 +315,74 @@ fun ReportScreen(searchViewModel: SearchViewModel = viewModel()) {
             )
         }
         // [추가] AI 분석 중일 때 나타나는 로딩 오버레이 (이미지 2번 UI)
-        if (geminiViewModel.isAnalyzing) {
+        if (geminiViewModel.isAnalyzing|| reportViewModel.isUploading) {
             AiLoadingOverlay()
         }
 
-        // [추가] AI 분석 완료 후 결과 화면 (이미지 2번 결과화면)
-      /*  if (geminiViewModel.aiResult.isNotEmpty() && !geminiViewModel.isAnalyzing) {
-            // 여기에 AI가 지어준 제목(geminiViewModel.aiResult)을 보여주는 UI를 띄우면 됩니다.
-            // 예: ReportResultScreen(title = geminiViewModel.aiResult)
-            ReportRegistrationScreen(
-                imageUri = capturedUri,
-                initialTitle = geminiViewModel.aiResult, // AI가 지어준 명사 제목
-                initialLocation = currentAddress,      // 현재 위치 주소
-                // [추가] 장소 칸을 클릭하면 지도 선택 모드를 켭니다
-                onLocationFieldClick = {
-                    isMapPickingMode = true
-                },
-                onDismiss = { geminiViewModel.clearResult() }, // 결과 초기화 함수 필요
-                onRegister = { category, finalTitle, finalLocation ->
-                    // 최종 데이터를 서버로 전송하는 로직
-                    Log.d("FILLIN", "등록: $category / $finalTitle / $finalLocation")
-                    geminiViewModel.clearResult()
+        // [추가] 지난 상황 제보 - 1단계: 위치 설정 화면
+        if (isPastReportLocationMode) {
+            PastReportLocationScreen(
+                initialAddress = finalLocation.ifEmpty { currentAddress },
+                onBack = { isPastReportLocationMode = false }, // X 버튼 누르면 닫기
+                onLocationSet = { selectedAddress ->
+                    finalLocation = selectedAddress          // 주소 저장
+                    isPastReportLocationMode = false        // 위치 화면 닫고
+                    isPastReportPhotoStage = true           // 다음 단계(사진 선택)로 이동
                 }
             )
-        }*/
+        }
+
+        // [추가] 지난 상황 제보 - 2단계: 갤러리 사진 추가 화면
+        if (isPastReportPhotoStage) {
+            PastReportPhotoSelectionScreen(
+                onClose = { isPastReportPhotoStage = false },
+                onPhotoSelected = { uri ->
+                    capturedUri = uri
+                    isPastReportPhotoStage = false      // 사진 선택 창을 닫음
+                    // 사진 선택되면 바로 AI 분석 시작
+                    //  하드코딩된 키 대신 BuildConfig.GEMINI_API_KEY를 사용하여 보안을 유지합니다.
+                    geminiViewModel.analyzeImage(
+                        context = context,
+                        uri = uri,
+                        apiKey = BuildConfig.GEMINI_API_KEY
+                    )
+                }
+            )
+        }
+
+        // [지난 상황 제보 전용] 분석 완료 후 등록 화면 표시 로직
+        if (isPastFlow && isPastReportPhotoStage == false && isPastReportLocationMode == false && capturedUri != null &&
+            geminiViewModel.aiResult.isNotEmpty() && !geminiViewModel.isAnalyzing) {
+            ReportRegistrationScreen(
+                topBarTitle = "지난 상황 제보", // ★ 타이틀을 "지난 상황 제보"로 설정
+                imageUri = capturedUri,
+                initialTitle = geminiViewModel.aiResult, // AI가 분석한 제목
+                initialLocation = finalLocation,        // ★ 유저가 선택했던 위치 주소 사용
+                onLocationFieldClick = {
+                    // 필요 시 다시 위치 설정 화면으로 돌아가는 로직 추가 가능
+                    isPastReportLocationMode = true
+                },
+                onDismiss = {
+                    // 모든 상태 초기화 및 닫기
+                    capturedUri = null
+                    geminiViewModel.clearResult()
+                },
+                onRegister = { category, title, location ->
+                    // TODO: 서버 또는 Firebase에 데이터 저장 로직 수행
+                    /*  Log.d("FILLIN_REPORT", "등록 시도: $category, $title, $location")
+
+                    // 등록 후 상태 초기화
+                    capturedUri = null
+                    geminiViewModel.clearResult()*/
+
+                    // [수정] DB 업로드 로직 연결
+                    capturedUri?.let { uri ->
+                        reportViewModel.uploadReport(category, title, location, uri)
+
+                    }
+                }
+            )
+        }
 
     }
 }
@@ -307,41 +393,76 @@ fun ReportScreen(searchViewModel: SearchViewModel = viewModel()) {
 @Composable
 fun AiLoadingOverlay() {
     Box(
-        modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.6f)),
         contentAlignment = Alignment.Center
     ) {
         Surface(
-            modifier = Modifier.width(300.dp).padding(20.dp),
-            shape = RoundedCornerShape(20.dp),
-            color = Color(0xFF4090E0) // 이미지 2번의 파란색 톤
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 32.dp),
+            shape = RoundedCornerShape(24.dp),
+            shadowElevation = 12.dp
         ) {
             Column(
-                modifier = Modifier.padding(24.dp),
+                modifier = Modifier
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF6BA4F8),
+                                Color(0xFF3178D6)
+                            )
+                        )
+                    )
+                    // 전체 높이를 충분히 줘서 "상단 / 중앙 / 하단" 구조 만들기
+                    .padding(horizontal = 24.dp)
+                    .height(420.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = "FILLIN",
-                    color = Color.White,
-                    fontWeight = FontWeight.ExtraBold,
-                    style = MaterialTheme.typography.titleLarge
+
+                /* ---------- 상단 : 로고 ---------- */
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Image(
+                    painter = painterResource(id = R.drawable.fillin_logo),
+                    contentDescription = "FILLIN Logo",
+                    modifier = Modifier
+                        .fillMaxWidth(0.55f)
+                        .height(42.dp),
+                    contentScale = ContentScale.Fit
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+
+                /* ---------- 중앙 : 텍스트 ---------- */
+                Spacer(modifier = Modifier.weight(1f))
+
                 Text(
-                    text = "AI가 제보 사진을\n분석하고 있어요!",
+                    text = "분석이 다 됐어요!\n열심히 작성하고 있어요.",
                     color = Color.White,
-                    style = MaterialTheme.typography.bodyLarge,
-                    textAlign = TextAlign.Center
+                    fontSize = 20.sp,              // 🔥 텍스트 크기 키움
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 28.sp             // 줄 간격도 같이 키워서 시원하게
                 )
-                Spacer(modifier = Modifier.height(20.dp))
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                /* ---------- 하단 : 프로그레스 ---------- */
                 LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().height(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp),
                     color = Color.White,
-                    trackColor = Color.White.copy(alpha = 0.3f)
+                    trackColor = Color.White.copy(alpha = 0.3f),
+                    strokeCap = StrokeCap.Round
                 )
+
+                Spacer(modifier = Modifier.height(28.dp))
             }
         }
     }
 }
+
 @Composable
 fun FilterAndLocationRow(modifier: Modifier = Modifier,
                          onLocationClick: () -> Unit ) {
@@ -379,7 +500,8 @@ fun CategoryChip(text: String, icon: ImageVector, color: Color) {
 }
 
 @Composable
-fun LocationButton(onClick: () -> Unit) { // onClick 추가
+// 현재 위치 버튼
+fun LocationButton(onClick: () -> Unit) {
     Surface(
         shape = CircleShape,
         color = Color.White,
@@ -390,12 +512,10 @@ fun LocationButton(onClick: () -> Unit) { // onClick 추가
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
-                // ★ 아이콘 대신 내 PNG 파일을 사용함
+                //  아이콘 대신 내 PNG 파일을 사용함
                 painter = painterResource(id = R.drawable.location),
                 contentDescription = "Current Location",
-                // PNG가 이미 파란색이라면 tint를 Color.Unspecified로 설정해줘
                 tint = Color.Unspecified,
-                // ★ 여기에 아이콘 크기를 지정하는 modifier를 추가하세요! ★
                 modifier = Modifier.size(20.dp)
             )
         }
