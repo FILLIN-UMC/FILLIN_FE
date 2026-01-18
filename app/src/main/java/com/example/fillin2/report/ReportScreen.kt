@@ -42,7 +42,10 @@ import com.example.fillin2.R
 import com.example.fillin2.ai.GeminiRepository
 import com.example.fillin2.ai.GeminiViewModel
 import com.example.fillin2.ai.GeminiViewModelFactory
+import com.example.fillin2.components.AiLoadingOverlay
 import com.example.fillin2.components.BottomNavBar
+import com.example.fillin2.components.FilterAndLocationRow
+import com.example.fillin2.components.LocationButton
 import com.example.fillin2.components.TabSpec
 import com.example.fillin2.db.FirestoreRepository
 import com.example.fillin2.kakao.Place
@@ -195,7 +198,7 @@ fun ReportScreen(searchViewModel: SearchViewModel = viewModel()) {
             }
         }
 
-        // [3. 검색 오버레이] - 검색 버튼 클릭 시 전체 화면을 덮음
+      /*  // [3. 검색 오버레이] - 검색 버튼 클릭 시 전체 화면을 덮음
         if (isSearching) {
             SearchScreen(
                 viewModel = searchViewModel,
@@ -213,9 +216,9 @@ fun ReportScreen(searchViewModel: SearchViewModel = viewModel()) {
                     isRouteSelecting = true // 경로 선택 화면으로 전환
                 }
             )
-        }
+        }  */
 
-        // [4. 경로 선택 UI 오버레이] - 추가된 부분
+       /* // [4. 경로 선택 UI 오버레이] - 추가된 부분
         if (isRouteSelecting) {
             RouteSelectionScreen(
                 startPlace = startPlace,
@@ -230,7 +233,7 @@ fun ReportScreen(searchViewModel: SearchViewModel = viewModel()) {
                     isRouteSelecting = false
                 }
             )
-        }
+        } */
 
         // [1. 제보 등록 화면 오버레이]
         // AI 분석 결과가 있고, 지도 선택 모드가 아닐 때만 띄웁니다.
@@ -314,7 +317,7 @@ fun ReportScreen(searchViewModel: SearchViewModel = viewModel()) {
                 }
             )
         }
-        // [추가] AI 분석 중일 때 나타나는 로딩 오버레이 (이미지 2번 UI)
+        //  AI 분석 중일 때 나타나는 로딩 오버레이
         if (geminiViewModel.isAnalyzing|| reportViewModel.isUploading) {
             AiLoadingOverlay()
         }
@@ -387,137 +390,5 @@ fun ReportScreen(searchViewModel: SearchViewModel = viewModel()) {
     }
 }
 
-// --- 네가 만든 하위 컴포넌트들 (그대로 유지) ---
 
-// --- [추가] 이미지 2번의 로딩 화면 UI 컴포넌트 ---
-@Composable
-fun AiLoadingOverlay() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.6f)),
-        contentAlignment = Alignment.Center
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 32.dp),
-            shape = RoundedCornerShape(24.dp),
-            shadowElevation = 12.dp
-        ) {
-            Column(
-                modifier = Modifier
-                    .background(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                Color(0xFF6BA4F8),
-                                Color(0xFF3178D6)
-                            )
-                        )
-                    )
-                    // 전체 높이를 충분히 줘서 "상단 / 중앙 / 하단" 구조 만들기
-                    .padding(horizontal = 24.dp)
-                    .height(420.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
 
-                /* ---------- 상단 : 로고 ---------- */
-                Spacer(modifier = Modifier.height(32.dp))
-
-                Image(
-                    painter = painterResource(id = R.drawable.fillin_logo),
-                    contentDescription = "FILLIN Logo",
-                    modifier = Modifier
-                        .fillMaxWidth(0.55f)
-                        .height(42.dp),
-                    contentScale = ContentScale.Fit
-                )
-
-                /* ---------- 중앙 : 텍스트 ---------- */
-                Spacer(modifier = Modifier.weight(1f))
-
-                Text(
-                    text = "분석이 다 됐어요!\n열심히 작성하고 있어요.",
-                    color = Color.White,
-                    fontSize = 20.sp,              // 🔥 텍스트 크기 키움
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 28.sp             // 줄 간격도 같이 키워서 시원하게
-                )
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                /* ---------- 하단 : 프로그레스 ---------- */
-                LinearProgressIndicator(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp),
-                    color = Color.White,
-                    trackColor = Color.White.copy(alpha = 0.3f),
-                    strokeCap = StrokeCap.Round
-                )
-
-                Spacer(modifier = Modifier.height(28.dp))
-            }
-        }
-    }
-}
-
-@Composable
-fun FilterAndLocationRow(modifier: Modifier = Modifier,
-                         onLocationClick: () -> Unit ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Bottom,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            CategoryChip(text = "위험", icon = Icons.Outlined.Warning, color = Color(0xFFE57373))
-            CategoryChip(text = "불편", icon = Icons.Outlined.RemoveCircleOutline, color = Color(0xFFFFB74D))
-            CategoryChip(text = "발견", icon = Icons.Outlined.Visibility, color = Color(0xFF4DB6AC))
-        }
-        LocationButton(onClick = onLocationClick)
-    }
-}
-
-@Composable
-fun CategoryChip(text: String, icon: ImageVector, color: Color) {
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = Color.White,
-        shadowElevation = 4.dp,
-        modifier = Modifier.height(36.dp).clickable { }
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(imageVector = icon, contentDescription = null, tint = color, modifier = Modifier.size(16.dp))
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(text = text, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-@Composable
-// 현재 위치 버튼
-fun LocationButton(onClick: () -> Unit) {
-    Surface(
-        shape = CircleShape,
-        color = Color.White,
-        shadowElevation = 4.dp,
-        modifier = Modifier
-            .size(40.dp)
-            .clickable { onClick() } // 클릭 시 전달받은 함수 실행
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                //  아이콘 대신 내 PNG 파일을 사용함
-                painter = painterResource(id = R.drawable.location),
-                contentDescription = "Current Location",
-                tint = Color.Unspecified,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-    }
-}
