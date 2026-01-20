@@ -1,0 +1,82 @@
+package com.example.fillin.feature.report
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Campaign
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun ReportOptionMenu(
+    modifier: Modifier = Modifier,
+    onPastReportClick: () -> Unit,
+    onRealtimeReportClick: () -> Unit
+) {
+    Surface(
+        modifier = modifier
+            .width(160.dp)
+            .shadow(8.dp, RoundedCornerShape(16.dp)),
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White
+    ) {
+        Column {
+            // 지난 상황 제보
+            ReportMenuItem(
+                icon = Icons.Outlined.Image,
+                label = "지난 상황 제보",
+                onClick = onPastReportClick
+            )
+            //  중간 구분선
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp), // 선 좌우에 여백을 주어 깔끔하게
+                thickness = 0.5.dp,
+                color = Color(0xFFEEEEEE) // 연한 회색으로 구분선 설정
+            )
+
+            // 실시간 제보
+            ReportMenuItem(
+                icon = Icons.Outlined.Campaign,
+                label = "실시간 제보",
+                onClick = onRealtimeReportClick
+            )
+        }
+    }
+}
+
+@Composable
+fun ReportMenuItem(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = Color(0xFF4090E0), // 이미지의 포인트 블루 색상
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF333333)
+        )
+    }
+}
