@@ -25,7 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-
+// BottomNavBar 위의 카테고리랑 현재위치버튼 함수
 @Composable
 fun FilterAndLocationRow(modifier: Modifier = Modifier,
                          onLocationClick: () -> Unit ) {

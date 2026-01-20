@@ -160,6 +160,7 @@ fun ReportDetailScreen(
                                 text = "${data.negativeLabel} ${data.negativeCount}",
                                 color = Color(0xFF4090E0),
                                 modifier = Modifier.weight(1f),
+                                isSelected = data.isNegativeSelected, // 상태 전달
                                 onClick = { /* 부정 피드백 API 호출 */ }
                             )
                             // 긍정 버튼 (우측)
@@ -167,6 +168,7 @@ fun ReportDetailScreen(
                                 text = "${data.positiveLabel} ${data.positiveCount}",
                                 color = themeColor,
                                 modifier = Modifier.weight(1f),
+                                isSelected = data.isPositiveSelected, // 상태 전달
                                 onClick = { /* 긍정 피드백 API 호출 */ }
                             )
                         }
@@ -188,13 +190,27 @@ fun ReportDetailScreen(
 }
 
 @Composable
-fun FeedbackButton(text: String, color: Color, modifier: Modifier, onClick: () -> Unit) {
-    OutlinedButton(
+fun FeedbackButton(
+    text: String,
+    color: Color,
+    modifier: Modifier,
+    isSelected: Boolean, // 선택 상태 파라미터 추가
+    onClick: () -> Unit
+) {
+    // 선택 여부에 따른 색상 결정
+    val containerColor = if (isSelected) color else Color.White
+    val contentColor = if (isSelected) Color.White else color
+    val border = if (isSelected) null else BorderStroke(1.dp, color)
+    Button( // OutlinedButton 대신 일반 Button을 사용하여 배경색 제어를 더 편하게 합니다.
         onClick = onClick,
         modifier = modifier.height(48.dp),
-        border = BorderStroke(1.dp, color),
         shape = RoundedCornerShape(24.dp),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = color)
+        border = border,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = containerColor,
+            contentColor = contentColor
+        ),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp) // 시안처럼 평면적인 느낌 유지
     ) {
         Text(text, fontWeight = FontWeight.Bold)
     }
@@ -207,7 +223,7 @@ fun ReportDetailPreview() {
     // Preview용 가상 데이터 생성
     val previewData = ReportDetailData(
         imageUrl = "",
-        category = ReportCategory.DANGER,
+        category = ReportCategory.INCONVENIENCE,
         title = "맨홀 뚜껑 역류",
         registrationDate = System.currentTimeMillis() - (1000L * 60 * 60 * 24 * 5), // 5일 전
         address = "행복길 1239-11 가는 길 20m",
@@ -216,7 +232,8 @@ fun ReportDetailPreview() {
         viewCount = 5,
         reporterName = "초치원 고리나",
         reporterLevel = "루키",
-        isLiked = false
+        isLiked = true,
+        isPositiveSelected= true
     )
 
     ReportDetailScreen(

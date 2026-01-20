@@ -30,7 +30,9 @@ data class ReportDetailData(
     val positiveCount: Int,     // 긍정 피드백 수
     val negativeCount: Int,     // 부정 피드백 수
     val viewCount: Int,         // 조회수
-    val isLiked: Boolean        // 좋아요
+    val isLiked: Boolean,       // 좋아요
+    val isPositiveSelected: Boolean = false, // 긍정 버튼 선택 여부
+    val isNegativeSelected: Boolean = false  // 부정 버튼 선택 여부
 ) {
     // [로직 A] 정보 유효성 상태 계산
     val validityStatus: String
