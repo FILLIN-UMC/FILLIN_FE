@@ -1,9 +1,6 @@
 package com.example.fillin.ui.navigation
 
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-
-import androidx.compose.foundation.layout.padding
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -15,7 +12,11 @@ import com.example.fillin.feature.mypage.SettingsScreen
 import com.example.fillin.feature.mypage.ROUTE_PROFILE_EDIT
 import com.example.fillin.feature.mypage.ROUTE_SETTINGS
 import com.example.fillin.feature.mypage.ROUTE_NOTIFICATIONS
-import com.example.fillin.feature.mypage.NotificationsScreen
+import com.example.fillin.feature.mypage.ROUTE_MY_REPORTS
+import com.example.fillin.feature.mypage.ROUTE_EXPIRING_REPORT_DETAIL
+import com.example.fillin.feature.expiringreport.ExpiringReportDetailScreen
+import com.example.fillin.feature.myreports.MyReportsScreen
+import com.example.fillin.feature.notifications.NotificationsScreen
 import com.example.fillin.feature.report.ReportScreen
 
 
@@ -44,6 +45,14 @@ fun MainNavGraph(
         composable(ROUTE_NOTIFICATIONS) {
             NotificationsScreen(navController = navController)
         }
+        composable(ROUTE_MY_REPORTS) {
+            MyReportsScreen(navController = navController)
+        }
+        composable(ROUTE_EXPIRING_REPORT_DETAIL) {
+            ExpiringReportDetailScreen(navController = navController)
+        }
+        composable("expiring_report_detail") {
+            ExpiringReportDetailScreen(navController = navController)
+        }
     }
 }
-
