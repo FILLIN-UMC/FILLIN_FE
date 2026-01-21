@@ -18,7 +18,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.navigation.NavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
@@ -29,15 +28,11 @@ import com.example.fillin.feature.mypage.ROUTE_PROFILE_EDIT
 import com.example.fillin.ui.components.BottomNavBar
 import com.example.fillin.ui.components.TabSpec
 import com.example.fillin.ui.navigation.MainNavGraph
-import com.example.fillin.data.AppPreferences
 
 @Composable
-fun MainScreen(
-    navController: NavController,
-    appPreferences: AppPreferences
-) {
-    val innerNavController = rememberNavController()
-    val backStackEntry by innerNavController.currentBackStackEntryAsState()
+fun MainScreen() {
+    val navController = rememberNavController()
+    val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
 
     // Routes that should NOT show the bottom navigation bar.
@@ -70,8 +65,8 @@ fun MainScreen(
                     my = TabSpec(MainTab.My.route, MainTab.My.label, MainTab.My.icon),
                     onTabClick = { route ->
                         Log.d("BottomNav", "onTabClick(nonMy) route=$route current=$currentRoute")
-                        innerNavController.navigate(route) {
-                            popUpTo(innerNavController.graph.findStartDestination().id) {
+                        navController.navigate(route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
                                 saveState = true
                             }
                             launchSingleTop = true
@@ -80,8 +75,8 @@ fun MainScreen(
                     },
                     onReportClick = {
                         Log.d("BottomNav", "onReportClick(nonMy) current=$currentRoute")
-                        innerNavController.navigate(MainTab.Report.route) {
-                            popUpTo(innerNavController.graph.findStartDestination().id) {
+                        navController.navigate(MainTab.Report.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
                                 saveState = true
                             }
                             launchSingleTop = true
@@ -99,7 +94,7 @@ fun MainScreen(
                 .background(Color(0xFFFFFFFF))
         ) {
             MainNavGraph(
-                navController = innerNavController,
+                navController = navController,
                 innerPadding = innerPadding,
                 onHideBottomBar = { isMyPageBottomBarVisible = false },
                 onShowBottomBar = { isMyPageBottomBarVisible = true }
@@ -129,8 +124,8 @@ fun MainScreen(
                             my = TabSpec(MainTab.My.route, MainTab.My.label, MainTab.My.icon),
                             onTabClick = { route ->
                                 Log.d("BottomNav", "onTabClick(MyOverlay) route=$route current=$currentRoute")
-                                innerNavController.navigate(route) {
-                                    popUpTo(innerNavController.graph.findStartDestination().id) {
+                                navController.navigate(route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
                                         saveState = true
                                     }
                                     launchSingleTop = true
@@ -139,8 +134,8 @@ fun MainScreen(
                             },
                             onReportClick = {
                                 Log.d("BottomNav", "onReportClick(MyOverlay) current=$currentRoute")
-                                innerNavController.navigate(MainTab.Report.route) {
-                                    popUpTo(innerNavController.graph.findStartDestination().id) {
+                                navController.navigate(MainTab.Report.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
                                         saveState = true
                                     }
                                     launchSingleTop = true

@@ -9,22 +9,19 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
 @Composable
-fun FillinBlueGradientBackground(
-    content: @Composable () -> Unit
-) {
+fun FillinBlueGradientBackground(content: @Composable () -> Unit) {
+    val bg = Brush.radialGradient(
+        colors = listOf(
+            Color(0xFFBFE7FF), // 가장자리 밝은 하늘색
+            Color(0xFF4FA6E6)  // 중앙쪽 진한 파랑
+        )
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF2F6EDC),
-                        Color(0xFF0E2A6B)
-                    )
-                )
-            )
+            .background(bg)
     ) {
         content()
     }
 }
-

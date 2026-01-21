@@ -19,6 +19,17 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // BuildConfig 상수로 Kakao Native App Key 노출
+        val kakaoKey: String = (project.findProperty("KAKAO_NATIVE_APP_KEY") as String?)
+            ?: "63844752a34b7b2429eacc9b6d3e3f66"
+        buildConfigField("String", "KAKAO_NATIVE_APP_KEY", "\"$kakaoKey\"")
+        manifestPlaceholders["KAKAO_NATIVE_APP_KEY"] = kakaoKey
+
+        // BuildConfig 상수로 Gemini API Key 노출
+        val geminiKey: String = (project.findProperty("GEMINI_API_KEY") as String?)
+            ?: ""
+        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiKey\"")
     }
 
     buildTypes {
@@ -78,7 +89,7 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
 
     // Naver Map SDK
-    implementation("com.naver.maps:map-sdk:3.17.0")
+    implementation("com.naver.maps:map-sdk:3.23.0")
 
     // CameraX
     implementation("androidx.camera:camera-core:1.4.0")

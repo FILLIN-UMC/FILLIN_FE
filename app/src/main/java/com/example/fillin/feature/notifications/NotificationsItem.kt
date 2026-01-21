@@ -213,14 +213,14 @@ fun NotificationItem(
 
             // Right thumbnail
             if (thumbnailResId != null) {
-                Image(
-                    painter = painterResource(id = thumbnailResId),
-                    contentDescription = "알림 썸네일",
-                    modifier = Modifier
-                        .size(56.dp)
-                        .clip(RoundedCornerShape(12.dp)),
-                    contentScale = ContentScale.Crop
-                )
+            Image(
+                painter = painterResource(id = thumbnailResId),
+                contentDescription = "알림 썸네일",
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(12.dp)),
+                contentScale = ContentScale.Crop
+            )
             } else {
                 Spacer(
                     modifier = Modifier
