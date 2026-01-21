@@ -16,6 +16,13 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven {
+            url = uri("https://repository.map.naver.com/archive/maven")
+        }
+        // Kakao SDK repository
+        maven {
+            url = uri("https://devrepo.kakao.com/nexus/content/groups/public/")
+        }
     }
 }
 
