@@ -62,8 +62,9 @@ fun MainScreen(
     var isMyPageBottomBarVisible by remember { mutableStateOf(true) }
     var showReportMenu by remember { mutableStateOf(false) }
 
-    Scaffold(
-        bottomBar = {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            bottomBar = {
             // Use Scaffold bottomBar for non-MyPage screens only.
             // (On MyPage we draw the bar as an overlay so dragging it down reveals the content behind it.)
             if (showBottomBar && !isMyPage) {
@@ -142,19 +143,22 @@ fun MainScreen(
                             },
                             enableDragToHide = false
                         )
-                    }
+        }
                 }
             }
 
-            // Global "제보 선택" 팝업 (어느 탭에서든 Report 버튼을 누르면 뜸)
-            if (showReportMenu) {
+        }
+    }
+
+        // 제보 버튼 클릭 시 "지난 상황 제보" / "실시간 제보" 팝업 (bottomBar 위에 표시되도록 Scaffold 바깥에 배치)
+        if (showReportMenu) {
+            Box(modifier = Modifier.fillMaxSize()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(Color.Black.copy(alpha = 0.2f))
                         .clickable { showReportMenu = false }
                 )
-
                 ReportOptionMenu(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -166,12 +170,12 @@ fun MainScreen(
                             ?.set("report_flow", "past")
                         innerNavController.navigate(MainTab.Report.route) {
                             popUpTo(innerNavController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
+                                saveState = true
                             }
-                        },
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
                     onRealtimeReportClick = {
                         showReportMenu = false
                         innerNavController.currentBackStackEntry
@@ -185,8 +189,8 @@ fun MainScreen(
                             restoreState = true
                         }
                     }
-                    )
-                }
+                )
             }
         }
     }
+}
