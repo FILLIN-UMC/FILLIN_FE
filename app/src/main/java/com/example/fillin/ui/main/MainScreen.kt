@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +34,7 @@ import com.example.fillin.ui.components.BottomNavBar
 import com.example.fillin.ui.components.TabSpec
 import com.example.fillin.ui.navigation.MainNavGraph
 import com.example.fillin.data.AppPreferences
+import kotlinx.coroutines.delay
 
 @Composable
 fun MainScreen(
@@ -41,7 +43,7 @@ fun MainScreen(
 ) {
     val innerNavController = rememberNavController()
     val backStackEntry by innerNavController.currentBackStackEntryAsState()
-    val currentRoute = backStackEntry?.destination?.route
+    val currentRoute: String? = backStackEntry?.destination?.route
 
     // Routes that should NOT show the bottom navigation bar.
     val hideBottomBarRoutes = setOf(
@@ -55,12 +57,14 @@ fun MainScreen(
     val isMyPage = currentRoute?.startsWith(MainTab.My.route) == true
     val showBottomBar = !hideBottomBar && (
         currentRoute == MainTab.Home.route ||
-                currentRoute == MainTab.Report.route ||
                 isMyPage
     )
 
     var isMyPageBottomBarVisible by remember { mutableStateOf(true) }
+    var isHomeBottomBarVisible by remember { mutableStateOf(true) }
     var showReportMenu by remember { mutableStateOf(false) }
+    // 제보 플로우 타입을 저장 (navigate 후에 savedStateHandle에 설정하기 위함)
+    var pendingReportFlow by remember { mutableStateOf<String?>(null) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -68,19 +72,31 @@ fun MainScreen(
             // Use Scaffold bottomBar for non-MyPage screens only.
             // (On MyPage we draw the bar as an overlay so dragging it down reveals the content behind it.)
             if (showBottomBar && !isMyPage) {
-                BottomNavBar(
+                // Home 화면에서는 isHomeBottomBarVisible 상태를 확인
+                val shouldShowBottomBar = when (currentRoute) {
+                    MainTab.Home.route -> isHomeBottomBarVisible
+                    else -> true
+                }
+                
+                if (shouldShowBottomBar) {
+                    BottomNavBar(
                     selectedRoute = currentRoute,
                     home = TabSpec(MainTab.Home.route, MainTab.Home.label, MainTab.Home.icon),
                     report = TabSpec(MainTab.Report.route, MainTab.Report.label, MainTab.Report.icon),
                     my = TabSpec(MainTab.My.route, MainTab.My.label, MainTab.My.icon),
                     onTabClick = { route ->
                         Log.d("BottomNav", "onTabClick(nonMy) route=$route current=$currentRoute")
-                        innerNavController.navigate(route) {
-                            popUpTo(innerNavController.graph.findStartDestination().id) {
-                                saveState = true
+                        // Report 탭을 클릭하면 제보 메뉴 표시, 아니면 해당 화면으로 이동
+                        if (route == MainTab.Report.route) {
+                            showReportMenu = true
+                        } else {
+                            innerNavController.navigate(route) {
+                                popUpTo(innerNavController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                            launchSingleTop = true
-                            restoreState = true
                         }
                     },
                     onReportClick = {
@@ -89,6 +105,7 @@ fun MainScreen(
                     },
                     enableDragToHide = false
                 )
+                }
             }
         }
     ) { innerPadding ->
@@ -101,8 +118,18 @@ fun MainScreen(
                 navController = innerNavController,
                 innerPadding = innerPadding,
                 appPreferences = appPreferences,
-                onHideBottomBar = { isMyPageBottomBarVisible = false },
-                onShowBottomBar = { isMyPageBottomBarVisible = true }
+                onHideBottomBar = { 
+                    when {
+                        isMyPage -> isMyPageBottomBarVisible = false
+                        currentRoute == MainTab.Home.route -> isHomeBottomBarVisible = false
+                    }
+                },
+                onShowBottomBar = { 
+                    when {
+                        isMyPage -> isMyPageBottomBarVisible = true
+                        currentRoute == MainTab.Home.route -> isHomeBottomBarVisible = true
+                    }
+                }
             )
 
             // Overlay BottomNavBar on MyPage so dragging it down reveals the content behind it.
@@ -129,12 +156,17 @@ fun MainScreen(
                         my = TabSpec(MainTab.My.route, MainTab.My.label, MainTab.My.icon),
                         onTabClick = { route ->
                             Log.d("BottomNav", "onTabClick(MyOverlay) route=$route current=$currentRoute")
+                            // Report 탭을 클릭하면 제보 메뉴 표시, 아니면 해당 화면으로 이동
+                            if (route == MainTab.Report.route) {
+                                showReportMenu = true
+                            } else {
                                 innerNavController.navigate(route) {
                                     popUpTo(innerNavController.graph.findStartDestination().id) {
-                                    saveState = true
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
                                 }
-                                launchSingleTop = true
-                                restoreState = true
                             }
                         },
                         onReportClick = {
@@ -147,6 +179,32 @@ fun MainScreen(
                 }
             }
 
+        }
+    }
+
+    // navigate 후에 savedStateHandle에 값을 설정
+    LaunchedEffect(currentRoute, pendingReportFlow) {
+        if (currentRoute == MainTab.Home.route && pendingReportFlow != null) {
+            val flowValue = pendingReportFlow // 로컬 변수로 저장하여 null 체크 문제 해결
+            // navigate가 완료된 후 savedStateHandle에 값 설정
+            delay(50) // navigate 완료를 위한 짧은 지연
+            try {
+                innerNavController.getBackStackEntry(MainTab.Home.route)
+                    .savedStateHandle
+                    .set("report_flow", flowValue)
+                pendingReportFlow = null // 설정 완료 후 초기화
+            } catch (e: Exception) {
+                // BackStackEntry를 찾을 수 없는 경우 재시도
+                delay(100)
+                try {
+                    innerNavController.getBackStackEntry(MainTab.Home.route)
+                        .savedStateHandle
+                        .set("report_flow", flowValue)
+                    pendingReportFlow = null
+                } catch (e2: Exception) {
+                    Log.e("MainScreen", "Failed to set report_flow", e2)
+                }
+            }
         }
     }
 
@@ -165,28 +223,48 @@ fun MainScreen(
                         .padding(bottom = 120.dp),
                     onPastReportClick = {
                         showReportMenu = false
-                        innerNavController.currentBackStackEntry
-                            ?.savedStateHandle
-                            ?.set("report_flow", "past")
-                        innerNavController.navigate(MainTab.Report.route) {
-                            popUpTo(innerNavController.graph.findStartDestination().id) {
-                                saveState = true
+                        // 현재 Home 화면에 있으면 바로 savedStateHandle에 설정
+                        if (currentRoute == MainTab.Home.route) {
+                            try {
+                                val entry = innerNavController.getBackStackEntry(MainTab.Home.route)
+                                entry.savedStateHandle.set("report_flow", "past")
+                                Log.d("MainScreen", "Set report_flow to past directly")
+                            } catch (e: Exception) {
+                                Log.e("MainScreen", "Failed to set report_flow", e)
                             }
-                            launchSingleTop = true
-                            restoreState = true
+                        } else {
+                            // 다른 화면에 있으면 navigate
+                            pendingReportFlow = "past"
+                            innerNavController.navigate(MainTab.Home.route) {
+                                popUpTo(innerNavController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
                         }
                     },
                     onRealtimeReportClick = {
                         showReportMenu = false
-                        innerNavController.currentBackStackEntry
-                            ?.savedStateHandle
-                            ?.set("report_flow", "realtime")
-                        innerNavController.navigate(MainTab.Report.route) {
-                            popUpTo(innerNavController.graph.findStartDestination().id) {
-                                saveState = true
+                        // 현재 Home 화면에 있으면 바로 savedStateHandle에 설정
+                        if (currentRoute == MainTab.Home.route) {
+                            try {
+                                val entry = innerNavController.getBackStackEntry(MainTab.Home.route)
+                                entry.savedStateHandle.set("report_flow", "realtime")
+                                Log.d("MainScreen", "Set report_flow to realtime directly")
+                            } catch (e: Exception) {
+                                Log.e("MainScreen", "Failed to set report_flow", e)
                             }
-                            launchSingleTop = true
-                            restoreState = true
+                        } else {
+                            // 다른 화면에 있으면 navigate
+                            pendingReportFlow = "realtime"
+                            innerNavController.navigate(MainTab.Home.route) {
+                                popUpTo(innerNavController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
                         }
                     }
                 )

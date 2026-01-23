@@ -2,6 +2,9 @@ package com.example.fillin.feature.home
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -40,7 +43,27 @@ import androidx.core.view.WindowInsetsControllerCompat
 import android.app.Activity
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.fillin.BuildConfig
 import com.example.fillin.R
+import com.example.fillin.data.ai.GeminiRepository
+import com.example.fillin.data.ai.GeminiViewModel
+import com.example.fillin.data.ai.GeminiViewModelFactory
+import com.example.fillin.data.kakao.RetrofitClient
+import com.example.fillin.feature.report.locationselect.LocationSelectionScreen
+import com.example.fillin.feature.report.pastreport.PastReportLocationScreen
+import com.example.fillin.feature.report.pastreport.PastReportPhotoSelectionScreen
+import com.example.fillin.feature.report.realtime.RealtimeReportScreen
+import com.example.fillin.feature.report.ReportOptionMenu
+import com.example.fillin.feature.report.ReportRegistrationScreen
+import com.example.fillin.feature.report.ReportViewModel
+import com.example.fillin.feature.report.ReportViewModelFactory
+import com.example.fillin.ui.components.AiLoadingOverlay
+import com.naver.maps.map.CameraPosition
+import com.naver.maps.map.CameraUpdate
+import com.naver.maps.map.CameraAnimation
+import com.example.fillin.data.ReportStatusManager
+import com.example.fillin.data.SampleReportData
 import com.example.fillin.data.SharedReportData
 import com.example.fillin.domain.model.Report
 import com.example.fillin.domain.model.ReportType
@@ -48,6 +71,8 @@ import com.example.fillin.domain.model.ReportStatus
 import com.example.fillin.ui.map.MapContent
 import com.example.fillin.ui.map.PresentLocation
 import com.example.fillin.ui.theme.FILLINTheme
+import com.example.fillin.feature.expiringreport.ExpiringReportCard
+import com.example.fillin.feature.expiringreport.ExpiringReportUi
 import com.naver.maps.map.NaverMap
 import com.naver.maps.map.overlay.Marker
 import com.naver.maps.map.overlay.OverlayImage
@@ -66,7 +91,6 @@ import android.graphics.RadialGradient
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
-import java.util.Calendar
 
 @Composable
 private fun SetStatusBarColor(color: Color, darkIcons: Boolean) {
@@ -83,7 +107,11 @@ private fun SetStatusBarColor(color: Color, darkIcons: Boolean) {
 }
 
 @Composable
-fun HomeScreen(navController: NavController? = null) {
+fun HomeScreen(
+    navController: NavController? = null,
+    onHideBottomBar: () -> Unit = {},
+    onShowBottomBar: () -> Unit = {}
+) {
     // 상태바를 밝은 배경에 어두운 아이콘으로 설정
     SetStatusBarColor(color = Color.White, darkIcons = true)
     val context = LocalContext.current
@@ -98,184 +126,169 @@ fun HomeScreen(navController: NavController? = null) {
     // 알림 배너 표시 여부
     var showNotificationBanner by remember { mutableStateOf(true) }
     
-    // 날짜를 밀리초로 변환하는 헬퍼 함수
-    fun dateToMillis(year: Int, month: Int, day: Int): Long {
-        val calendar = Calendar.getInstance().apply {
-            set(year, month - 1, day, 0, 0, 0)
-            set(Calendar.MILLISECOND, 0)
+    // 선택된 제보 (마커 클릭 시 표시할 제보)
+    var selectedReport by remember { mutableStateOf<ReportWithLocation?>(null) }
+    
+    // === [제보 기능 관련 상태] ===
+    var showReportMenu by remember { mutableStateOf(false) } // 제보 메뉴 표시 여부
+    var isPastFlow by remember { mutableStateOf(false) } // 현재 지난 상황 제보 흐름인지 확인
+    var showCamera by remember { mutableStateOf(false) } // 카메라 화면 표시 여부
+    var capturedUri by remember { mutableStateOf<Uri?>(null) }
+    var currentAddress by remember { mutableStateOf("서울시 용산구 행복대로 392") } // 예시 주소
+    var isMapPickingMode by remember { mutableStateOf(false) } // 위치 선택 모드 상태
+    var finalLocation by remember { mutableStateOf("") } // 확정된 주소 저장
+    var isPastReportLocationMode by remember { mutableStateOf(false) } // 위치 설정 단계
+    var isPastReportPhotoStage by remember { mutableStateOf(false) } // 사진 선택 단계
+    var savedCameraPosition: CameraPosition? by remember { mutableStateOf(null) } // 카메라 실행 전 지도 위치 저장
+    
+    // === [AI 및 DB 관련 ViewModel] ===
+    val apiService = remember { RetrofitClient.geminiApi }
+    val geminiRepository = remember { GeminiRepository(apiService) }
+    val geminiViewModel: GeminiViewModel = viewModel(factory = GeminiViewModelFactory(geminiRepository))
+    val firestoreRepository = remember { com.example.fillin.data.db.FirestoreRepository() }
+    val reportViewModel: ReportViewModel = viewModel(factory = ReportViewModelFactory(firestoreRepository))
+    
+    // === [권한 Launcher] ===
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            showCamera = true
+        } else {
+            Log.e("Permission", "카메라 권한 거부됨")
         }
-        return calendar.timeInMillis
     }
     
-    // 임의 제보 데이터 10개 (홍대입구역 3개, 합정역 3개, 신촌역 4개)
+    // === [제보 플로우 함수] ===
+    fun startPastFlow() {
+        isPastFlow = true
+        isPastReportLocationMode = true
+        isPastReportPhotoStage = false
+        isMapPickingMode = false
+        showCamera = false
+    }
+    
+    fun startRealtimeFlow() {
+        isPastFlow = false
+        isPastReportLocationMode = false
+        isPastReportPhotoStage = false
+        isMapPickingMode = false
+        
+        // 카메라 실행 전 현재 지도 위치 저장
+        naverMap?.let { map ->
+            savedCameraPosition = map.cameraPosition
+        }
+        
+        val permissionCheckResult =
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
+        if (permissionCheckResult == PackageManager.PERMISSION_GRANTED) {
+            showCamera = true
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+    
+    // === [MainScreen에서 전달된 제보 플로우 처리] ===
+    val backStackEntry = navController?.currentBackStackEntry
+    val savedStateHandle = backStackEntry?.savedStateHandle
+    
+    // savedStateHandle의 변경을 감지하기 위해 주기적으로 체크
+    // savedStateHandle.set() 후 즉시 감지되지 않을 수 있으므로 주기적 체크 사용
+    var lastReportFlow by remember(backStackEntry) { mutableStateOf<String?>(null) }
+    
+    LaunchedEffect(backStackEntry) {
+        if (backStackEntry == null) return@LaunchedEffect
+        
+        // backStackEntry가 변경되면 lastReportFlow 초기화
+        lastReportFlow = null
+        
+        while (true) {
+            val flow = savedStateHandle?.get<String>("report_flow")
+            // flow가 있고, 이전에 처리하지 않은 값인 경우에만 처리
+            if (!flow.isNullOrBlank() && flow != lastReportFlow) {
+                Log.d("HomeScreen", "Detected report_flow: $flow")
+                // 먼저 remove하여 중복 실행 방지
+                savedStateHandle?.remove<String>("report_flow")
+                // lastReportFlow 업데이트하여 중복 처리 방지
+                lastReportFlow = flow
+                
+                when (flow) {
+                    "past" -> {
+                        Log.d("HomeScreen", "Starting past flow")
+                        startPastFlow()
+                    }
+                    "realtime" -> {
+                        Log.d("HomeScreen", "Starting realtime flow")
+                        // naverMap이 있으면 위치 저장, 없어도 startRealtimeFlow 호출
+                        if (naverMap != null) {
+                            savedCameraPosition = naverMap?.cameraPosition
+                        }
+                        startRealtimeFlow()
+                    }
+                }
+            }
+            delay(50) // 50ms마다 체크
+        }
+    }
+    
+    // === [업로드 결과 관찰 및 알림 처리] ===
+    LaunchedEffect(reportViewModel.uploadStatus) {
+        if (reportViewModel.uploadStatus == true) {
+            Toast.makeText(context, "제보가 성공적으로 등록되었습니다!", Toast.LENGTH_SHORT).show()
+            capturedUri = null
+            geminiViewModel.clearResult()
+            reportViewModel.resetStatus()
+        } else if (reportViewModel.uploadStatus == false) {
+            Toast.makeText(context, "등록에 실패했습니다. 다시 시도해주세요.", Toast.LENGTH_SHORT).show()
+            reportViewModel.resetStatus()
+        }
+    }
+    
+    // === [카메라가 켜지면 네비게이션 바 숨기기, 닫히면 저장된 지도 위치로 복원] ===
+    LaunchedEffect(showCamera) {
+        if (showCamera) {
+            onHideBottomBar()
+        } else {
+            onShowBottomBar()
+            savedCameraPosition?.let { savedPosition ->
+                naverMap?.let { map ->
+                    val cameraUpdate = CameraUpdate.scrollAndZoomTo(
+                        savedPosition.target,
+                        savedPosition.zoom
+                    ).animate(CameraAnimation.Easing)
+                    map.moveCamera(cameraUpdate)
+                }
+            }
+        }
+    }
+    
+    // 샘플 제보 데이터 가져오기
     val sampleReports = remember {
-        listOf(
-            // 홍대입구역 근처 - 1
-            ReportWithLocation(
-                report = Report(
-                    id = 1,
-                    title = "서울시 마포구 양화로 188 홍대입구역 1번 출구 앞",
-                    meta = "사고 발생",
-                    type = ReportType.DANGER,
-                    viewCount = 15,
-                    status = ReportStatus.ACTIVE,
-                    imageResId = R.drawable.ic_report_img,
-                    createdAtMillis = dateToMillis(2026, 1, 17)
-                ),
-                latitude = 37.556300,
-                longitude = 126.923200
-            ),
-            // 홍대입구역 근처 - 2
-            ReportWithLocation(
-                report = Report(
-                    id = 2,
-                    title = "서울시 마포구 홍익로 3길 15-2",
-                    meta = "맨홀 뚜껑 파손",
-                    type = ReportType.INCONVENIENCE,
-                    viewCount = 8,
-                    status = ReportStatus.ACTIVE,
-                    imageResId = R.drawable.ic_report_img_2,
-                    createdAtMillis = dateToMillis(2026, 1, 19)
-                ),
-                latitude = 37.557000,
-                longitude = 126.924000
-            ),
-            // 홍대입구역 근처 - 3
-            ReportWithLocation(
-                report = Report(
-                    id = 3,
-                    title = "서울시 마포구 양화로 188 홍대입구역 9번 출구 앞",
-                    meta = "고양이 발견",
-                    type = ReportType.DISCOVERY,
-                    viewCount = 23,
-                    status = ReportStatus.ACTIVE,
-                    imageResId = R.drawable.ic_report_img_3,
-                    createdAtMillis = dateToMillis(2026, 1, 18)
-                ),
-                latitude = 37.555500,
-                longitude = 126.922500
-            ),
-            // 합정역 근처 - 1
-            ReportWithLocation(
-                report = Report(
-                    id = 4,
-                    title = "서울시 마포구 양화로 160 합정역 1번 출구 앞",
-                    meta = "낙하물 위험",
-                    type = ReportType.DANGER,
-                    viewCount = 12,
-                    status = ReportStatus.ACTIVE,
-                    imageResId = R.drawable.ic_report_img,
-                    createdAtMillis = dateToMillis(2026, 1, 20)
-                ),
-                latitude = 37.550500,
-                longitude = 126.914500
-            ),
-            // 합정역 근처 - 2
-            ReportWithLocation(
-                report = Report(
-                    id = 5,
-                    title = "서울시 마포구 양화로 140 합정역 2번 출구 앞",
-                    meta = "도로 파손",
-                    type = ReportType.INCONVENIENCE,
-                    viewCount = 6,
-                    status = ReportStatus.ACTIVE,
-                    imageResId = R.drawable.ic_report_img_2,
-                    createdAtMillis = dateToMillis(2026, 1, 16)
-                ),
-                latitude = 37.549500,
-                longitude = 126.913500
-            ),
-            // 합정역 근처 - 3
-            ReportWithLocation(
-                report = Report(
-                    id = 6,
-                    title = "서울시 마포구 양화로 150 합정역 3번 출구 앞",
-                    meta = "예쁜 꽃 발견",
-                    type = ReportType.DISCOVERY,
-                    viewCount = 18,
-                    status = ReportStatus.ACTIVE,
-                    imageResId = R.drawable.ic_report_img_3,
-                    createdAtMillis = dateToMillis(2026, 1, 19)
-                ),
-                latitude = 37.551000,
-                longitude = 126.915000
-            ),
-            // 신촌역 근처 - 1
-            ReportWithLocation(
-                report = Report(
-                    id = 7,
-                    title = "서울시 서대문구 연세로 50 신촌역 1번 출구 앞",
-                    meta = "전기 누전 위험",
-                    type = ReportType.DANGER,
-                    viewCount = 9,
-                    status = ReportStatus.ACTIVE,
-                    imageResId = R.drawable.ic_report_img,
-                    createdAtMillis = dateToMillis(2026, 1, 20)
-                ),
-                latitude = 37.555100,
-                longitude = 126.936800
-            ),
-            // 신촌역 근처 - 2
-            ReportWithLocation(
-                report = Report(
-                    id = 8,
-                    title = "서울시 서대문구 연세로 60 신촌역 2번 출구 앞",
-                    meta = "인도 파손",
-                    type = ReportType.INCONVENIENCE,
-                    viewCount = 11,
-                    status = ReportStatus.ACTIVE,
-                    imageResId = R.drawable.ic_report_img_2,
-                    createdAtMillis = dateToMillis(2026, 1, 15)
-                ),
-                latitude = 37.556100,
-                longitude = 126.937800
-            ),
-            // 신촌역 근처 - 3
-            ReportWithLocation(
-                report = Report(
-                    id = 9,
-                    title = "서울시 서대문구 연세로 40 신촌역 3번 출구 앞",
-                    meta = "새로운 벤치 설치",
-                    type = ReportType.DISCOVERY,
-                    viewCount = 7,
-                    status = ReportStatus.ACTIVE,
-                    imageResId = R.drawable.ic_report_img_3,
-                    createdAtMillis = dateToMillis(2026, 1, 20)
-                ),
-                latitude = 37.554100,
-                longitude = 126.935800
-            ),
-            // 신촌역 근처 - 4
-            ReportWithLocation(
-                report = Report(
-                    id = 10,
-                    title = "서울시 서대문구 연세로 55 신촌역 4번 출구 앞",
-                    meta = "예쁜 벽화 발견",
-                    type = ReportType.DISCOVERY,
-                    viewCount = 20,
-                    status = ReportStatus.ACTIVE,
-                    imageResId = R.drawable.ic_report_img_3,
-                    createdAtMillis = dateToMillis(2026, 1, 14)
-                ),
-                latitude = 37.555600,
-                longitude = 126.937000
-            )
-        )
+        SampleReportData.getSampleReports()
+    }
+    
+    // 제보 상태 업데이트 (피드백 조건에 따라 EXPIRING/EXPIRED 상태로 변경)
+    val updatedSampleReports = remember(sampleReports) {
+        sampleReports.map { reportWithLocation ->
+            val updatedReport = ReportStatusManager.updateReportStatus(reportWithLocation.report)
+            reportWithLocation.copy(report = updatedReport)
+        }
     }
     
     // 제보 데이터를 공유 객체에 저장
-    LaunchedEffect(sampleReports) {
-        SharedReportData.setReports(sampleReports)
+    LaunchedEffect(updatedSampleReports) {
+        SharedReportData.setReports(updatedSampleReports)
     }
     
-    // 현재 시간 기준 최근 3일 제보 필터링 및 정렬
-    val filteredAndSortedReports = remember(sampleReports) {
+    // 현재 시간 기준 최근 3일 제보 필터링 및 정렬 (ACTIVE 상태만)
+    val filteredAndSortedReports = remember(updatedSampleReports) {
         val now = System.currentTimeMillis()
         val threeDaysAgo = now - (3 * 24 * 60 * 60 * 1000L) // 3일 전
         
-        sampleReports
+        updatedSampleReports
             .filter { reportWithLocation: ReportWithLocation ->
-                // 최근 3일 필터링
+                // ACTIVE 상태이고 최근 3일 필터링
+                reportWithLocation.report.status == ReportStatus.ACTIVE &&
                 reportWithLocation.report.createdAtMillis >= threeDaysAgo
             }
             .sortedWith(
@@ -534,19 +547,24 @@ fun HomeScreen(navController: NavController? = null) {
     }
     
     // 지도 마커 표시 (줌 레벨에 따라 개별 마커 또는 클러스터 마커)
-    LaunchedEffect(naverMap, sampleReports, selectedCategories, cameraZoomLevel) {
+    LaunchedEffect(naverMap, updatedSampleReports, selectedCategories, cameraZoomLevel) {
         naverMap?.let { naverMapInstance ->
             // 기존 마커 제거
             markers.forEach { it.map = null }
             markers.clear()
             
+            // ACTIVE 상태인 제보만 필터링
+            val activeReports = updatedSampleReports.filter { 
+                it.report.status == ReportStatus.ACTIVE 
+            }
+            
             // 줌 레벨이 14 이하이면 클러스터링
             if (cameraZoomLevel <= 14.0) {
                 // 클러스터링 로직 (카테고리 구분 없이 거리만으로 묶기)
                 val clusters = mutableListOf<Cluster>()
-                val processed = BooleanArray(sampleReports.size) { false }
+                val processed = BooleanArray(activeReports.size) { false }
                 
-                sampleReports.forEachIndexed { index, reportWithLocation ->
+                activeReports.forEachIndexed { index, reportWithLocation ->
                     if (processed[index]) return@forEachIndexed
                     
                     val cluster = Cluster(
@@ -560,7 +578,7 @@ fun HomeScreen(navController: NavController? = null) {
                     var changed = true
                     while (changed) {
                         changed = false
-                        sampleReports.forEachIndexed { otherIndex, otherReport ->
+                        activeReports.forEachIndexed { otherIndex, otherReport ->
                             if (!processed[otherIndex]) {
                                 val distance = calculateDistanceMeters(
                                     cluster.centerLat,
@@ -604,7 +622,7 @@ fun HomeScreen(navController: NavController? = null) {
                 }
             } else {
                 // 개별 마커 표시
-                sampleReports.forEach { reportWithLocation ->
+                activeReports.forEach { reportWithLocation ->
                     // 선택된 카테고리에 해당하는 마커는 2배 크기(80dp), 아니면 기본 크기(40dp)
                     val isSelected = selectedCategories.contains(reportWithLocation.report.type)
                     val markerSize = if (isSelected) 80 else 40
@@ -634,6 +652,11 @@ fun HomeScreen(navController: NavController? = null) {
                             ReportType.DISCOVERY -> {
                                 createCircularMarkerIcon(R.drawable.ic_report_img_3, markerSize, backgroundColor)
                             }
+                        }
+                        // 마커 클릭 리스너 추가
+                        setOnClickListener {
+                            selectedReport = reportWithLocation
+                            true
                         }
                     }
                     markers.add(marker)
@@ -690,6 +713,13 @@ fun HomeScreen(navController: NavController? = null) {
                 // 카메라 변경 리스너 추가
                 map.addOnCameraIdleListener {
                     cameraZoomLevel = map.cameraPosition.zoom
+                    // 지도 위치가 변경될 때마다 savedStateHandle에 저장 (위도, 경도, 줌 레벨)
+                    val position = map.cameraPosition
+                    navController?.currentBackStackEntry?.savedStateHandle?.apply {
+                        set("home_camera_lat", position.target.latitude)
+                        set("home_camera_lng", position.target.longitude)
+                        set("home_camera_zoom", position.zoom)
+                    }
                 }
                 
                 // 커스텀 위치 핀 아이콘 설정 및 실시간 위치 업데이트 시작
@@ -727,15 +757,22 @@ fun HomeScreen(navController: NavController? = null) {
                 .padding(bottom = navBarTotalHeight + 20.dp) // 카테고리 필터와 동일한 높이
                 .padding(end = 16.dp),
             onClick = {
+                // naverMap이 null이면 아무 동작도 하지 않음
+                if (naverMap == null) {
+                    return@LocationButton
+                }
+                
                 if (ContextCompat.checkSelfPermission(
                         context,
                         Manifest.permission.ACCESS_FINE_LOCATION
                     ) == PackageManager.PERMISSION_GRANTED
                 ) {
+                    // 권한이 있으면 바로 위치로 이동
                     naverMap?.let { map ->
                         presentLocation.moveMapToCurrentLocation(map)
                     }
                 } else {
+                    // 권한이 없으면 권한 요청
                     locationPermissionLauncher.launch(
                         arrayOf(
                             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -762,7 +799,213 @@ fun HomeScreen(navController: NavController? = null) {
             }
         )
         
+        // 제보 카드 표시 (마커 클릭 시)
+        selectedReport?.let { reportWithLocation ->
+            val expiringReportUi = convertToExpiringReportUi(reportWithLocation)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable { selectedReport = null }
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                ExpiringReportCard(
+                    report = expiringReportUi,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = false) { } // 카드 내부 클릭 방지
+                )
+            }
+        }
+        
+        // === [제보 관련 UI 오버레이] ===
+        
+        // [1. 제보 등록 화면 오버레이] - 실시간 제보
+        if (geminiViewModel.aiResult.isNotEmpty() && !isMapPickingMode && !isPastReportPhotoStage && !isPastReportLocationMode && !isPastFlow) {
+            ReportRegistrationScreen(
+                topBarTitle = "실시간 제보",
+                imageUri = capturedUri,
+                initialTitle = geminiViewModel.aiResult,
+                initialLocation = finalLocation.ifEmpty { "서울시 용산구 행복대로 392" },
+                onLocationFieldClick = { isMapPickingMode = true },
+                onDismiss = { geminiViewModel.clearResult() },
+                onRegister = { category, title, location ->
+                    capturedUri?.let { uri ->
+                        reportViewModel.uploadReport(category, title, location, uri)
+                    }
+                }
+            )
+        }
+        
+        // [2. 위치 선택 화면 오버레이]
+        if (isMapPickingMode) {
+            LocationSelectionScreen(
+                initialAddress = finalLocation.ifEmpty { "서울시 용산구 행복대로 392" },
+                onBack = { isMapPickingMode = false },
+                onLocationSet = { selectedAddress ->
+                    finalLocation = selectedAddress
+                    isMapPickingMode = false
+                }
+            )
+        }
+        
+        // [3. 제보 메뉴 오버레이]
+        if (showReportMenu) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.2f))
+                    .clickable { showReportMenu = false }
+            )
+            ReportOptionMenu(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = navBarTotalHeight + 20.dp),
+                onPastReportClick = {
+                    showReportMenu = false
+                    startPastFlow()
+                },
+                onRealtimeReportClick = {
+                    showReportMenu = false
+                    startRealtimeFlow()
+                }
+            )
+        }
+        
+        // [4. 카메라 화면 오버레이]
+        if (showCamera) {
+            RealtimeReportScreen(
+                onDismiss = { showCamera = false },
+                onReportSubmit = { uri ->
+                    capturedUri = uri
+                    showCamera = false
+                    val apiKey = BuildConfig.GEMINI_API_KEY
+                    if (apiKey.isNotEmpty()) {
+                        geminiViewModel.analyzeImage(
+                            context = context,
+                            uri = uri,
+                            apiKey = apiKey
+                        )
+                    } else {
+                        Toast.makeText(context, "GEMINI_API_KEY가 설정되지 않았습니다.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )
+        }
+        
+        // [5. AI 분석 중 로딩 오버레이]
+        if (geminiViewModel.isAnalyzing || reportViewModel.isUploading) {
+            AiLoadingOverlay()
+        }
+        
+        // [6. 지난 상황 제보 - 위치 설정 화면]
+        if (isPastReportLocationMode) {
+            PastReportLocationScreen(
+                initialAddress = finalLocation.ifEmpty { currentAddress },
+                onBack = { isPastReportLocationMode = false },
+                onLocationSet = { selectedAddress ->
+                    finalLocation = selectedAddress
+                    isPastReportLocationMode = false
+                    isPastReportPhotoStage = true
+                }
+            )
+        }
+        
+        // [7. 지난 상황 제보 - 갤러리 사진 선택 화면]
+        if (isPastReportPhotoStage) {
+            PastReportPhotoSelectionScreen(
+                onClose = { isPastReportPhotoStage = false },
+                onPhotoSelected = { uri ->
+                    capturedUri = uri
+                    isPastReportPhotoStage = false
+                    val apiKey = BuildConfig.GEMINI_API_KEY
+                    if (apiKey.isNotEmpty()) {
+                        geminiViewModel.analyzeImage(
+                            context = context,
+                            uri = uri,
+                            apiKey = apiKey
+                        )
+                    } else {
+                        Toast.makeText(context, "GEMINI_API_KEY가 설정되지 않았습니다.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )
+        }
+        
+        // [8. 지난 상황 제보 - 등록 화면]
+        if (isPastFlow && !isPastReportPhotoStage && !isPastReportLocationMode && capturedUri != null &&
+            geminiViewModel.aiResult.isNotEmpty() && !geminiViewModel.isAnalyzing) {
+            ReportRegistrationScreen(
+                topBarTitle = "지난 상황 제보",
+                imageUri = capturedUri,
+                initialTitle = geminiViewModel.aiResult,
+                initialLocation = finalLocation,
+                onLocationFieldClick = {
+                    isPastReportLocationMode = true
+                },
+                onDismiss = {
+                    capturedUri = null
+                    geminiViewModel.clearResult()
+                },
+                onRegister = { category, title, location ->
+                    capturedUri?.let { uri ->
+                        reportViewModel.uploadReport(category, title, location, uri)
+                    }
+                }
+            )
+        }
+        
     }
+}
+
+// ReportWithLocation을 ExpiringReportUi로 변환하는 헬퍼 함수
+private fun convertToExpiringReportUi(reportWithLocation: ReportWithLocation): ExpiringReportUi {
+    val report = reportWithLocation.report
+    
+    // 타입에 따른 라벨과 색상
+    val (typeLabel, typeColor) = when (report.type) {
+        ReportType.DANGER -> "위험" to Color(0xFFFF6060)
+        ReportType.INCONVENIENCE -> "불편" to Color(0xFF4595E5)
+        ReportType.DISCOVERY -> "발견" to Color(0xFF29C488)
+    }
+    
+    // 날짜 포맷팅 (예: "5일 전")
+    val daysAgo = (System.currentTimeMillis() - report.createdAtMillis) / (24 * 60 * 60 * 1000)
+    val createdLabel = if (daysAgo == 0L) "오늘" else "${daysAgo}일 전"
+    
+    // 주소에서 시/도/구 제거 및 위치 설명 제거
+    var addressWithoutCityDistrict = report.title.replace(
+        Regex("^[가-힣]+(?:시|도)\\s+[가-힣]+(?:구|시)\\s*"), 
+        ""
+    )
+    addressWithoutCityDistrict = addressWithoutCityDistrict.replace(
+        Regex("\\s*[가-힣]*역\\s*\\d+번\\s*출구\\s*앞"), 
+        ""
+    ).trim()
+    
+    // 제목: report.meta가 실제 제목 (예: "맨홀 뚜껑 역류")
+    // 주소: report.title이 주소 (예: "서울시 마포구 양화로 188 홍대입구역 1번 출구 앞")
+    // 거리: report.meta에 거리 정보가 포함되어 있을 수도 있지만, 현재는 제목으로 사용
+    val title = report.meta // meta가 제목
+    val distance = "" // 거리 정보는 별도로 없으므로 빈 문자열
+    
+    return ExpiringReportUi(
+        warningText = if (report.status == ReportStatus.EXPIRING) "오래된 제보일 수 있어요" else "",
+        imageRes = report.imageResId ?: R.drawable.ic_report_img,
+        views = report.viewCount,
+        typeLabel = typeLabel,
+        typeColor = typeColor,
+        userName = "사용자", // TODO: 실제 사용자 정보로 교체
+        userBadge = "루키", // TODO: 실제 사용자 뱃지로 교체
+        title = title,
+        createdLabel = createdLabel,
+        address = addressWithoutCityDistrict,
+        distance = distance,
+        okCount = report.positiveFeedbackCount,
+        dangerCount = report.negativeFeedbackCount,
+        isLiked = report.isSaved
+    )
 }
 
 @Composable

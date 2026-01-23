@@ -17,7 +17,6 @@ import com.example.fillin.feature.mypage.ROUTE_EXPIRING_REPORT_DETAIL
 import com.example.fillin.feature.expiringreport.ExpiringReportDetailScreen
 import com.example.fillin.feature.myreports.MyReportsScreen
 import com.example.fillin.feature.notifications.NotificationsScreen
-import com.example.fillin.feature.report.ReportScreen
 import com.example.fillin.data.AppPreferences
 
 
@@ -33,8 +32,13 @@ fun MainNavGraph(
         navController = navController,
         startDestination = MainTab.Home.route,
     ) {
-        composable(MainTab.Home.route) { HomeScreen(navController = navController) }
-        composable(MainTab.Report.route) { ReportScreen(navController = navController) }
+        composable(MainTab.Home.route) { 
+            HomeScreen(
+                navController = navController,
+                onHideBottomBar = onHideBottomBar,
+                onShowBottomBar = onShowBottomBar
+            ) 
+        }
         composable(MainTab.My.route) {
             MyPageScreen(
                 navController = navController,
