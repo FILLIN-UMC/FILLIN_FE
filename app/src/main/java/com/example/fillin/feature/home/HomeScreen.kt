@@ -250,6 +250,8 @@ fun HomeScreen(
             onHideBottomBar()
         } else {
             onShowBottomBar()
+            // 카메라가 닫힐 때 lastReportFlow 초기화하여 다시 실시간 제보를 누를 수 있도록 함
+            lastReportFlow = null
             savedCameraPosition?.let { savedPosition ->
                 naverMap?.let { map ->
                     val cameraUpdate = CameraUpdate.scrollAndZoomTo(
