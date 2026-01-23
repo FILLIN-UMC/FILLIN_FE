@@ -25,10 +25,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
 import com.example.fillin.BuildConfig
 import com.example.fillin.data.ai.GeminiRepository
 import com.example.fillin.data.ai.GeminiViewModel
 import com.example.fillin.data.ai.GeminiViewModelFactory
+import com.example.fillin.data.kakao.Place
 import com.example.fillin.data.kakao.RetrofitClient
 import com.example.fillin.feature.report.locationselect.LocationSelectionScreen
 import com.example.fillin.feature.report.pastreport.PastReportLocationScreen
@@ -43,14 +45,19 @@ import com.example.fillin.ui.map.PresentLocation
 import com.naver.maps.map.NaverMap
 
 @Composable
-fun ReportScreen() {
+fun ReportScreen(navController: NavController) {
     // 1. 상태 관리
     var selectedRoute by remember { mutableStateOf("home") }
     var showReportMenu by remember { mutableStateOf(false) } // 제보 메뉴 표시 여부
+    var isSearching by remember { mutableStateOf(false) } // 검색 모드 상태
     var isPastFlow by remember { mutableStateOf(false) } // 현재 지난 상황 제보 흐름인지 확인
     // [추가] 카메라 화면 표시 여부 상태
     var showCamera by remember { mutableStateOf(false) }
 
+    // [추가] 출발지/도착지 및 경로 선택 모드 상태
+    var startPlace by remember { mutableStateOf<Place?>(null) }
+    var endPlace by remember { mutableStateOf<Place?>(null) }
+    var isRouteSelecting by remember { mutableStateOf(false) } // 경로 선택 UI 표시 여부
     // 2. 탭 데이터
     val homeTab = TabSpec(route = "home", label = "home", icon = Icons.Filled.Home)
     val myTab = TabSpec(route = "my", label = "my", icon = Icons.Filled.Person)
@@ -120,6 +127,45 @@ fun ReportScreen() {
             // 필요시 여기서 사용자에게 알림(Toast 등)을 줄 수 있습니다.
         }
     }
+
+    fun startPastFlow() {
+        isPastFlow = true
+        isPastReportLocationMode = true
+        isPastReportPhotoStage = false
+        isMapPickingMode = false
+        showCamera = false
+    }
+
+    fun startRealtimeFlow() {
+        isPastFlow = false
+        isPastReportLocationMode = false
+        isPastReportPhotoStage = false
+        isMapPickingMode = false
+
+        val permissionCheckResult =
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
+        if (permissionCheckResult == PackageManager.PERMISSION_GRANTED) {
+            showCamera = true
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    // MainScreen(하단바)에서 전달된 "제보 플로우" 요청을 소비
+    LaunchedEffect(Unit) {
+        val flow = navController.currentBackStackEntry
+            ?.savedStateHandle
+            ?.get<String>("report_flow")
+        if (!flow.isNullOrBlank()) {
+            // 한 번 처리 후 제거(재진입 시 반복 실행 방지)
+            navController.currentBackStackEntry?.savedStateHandle?.remove<String>("report_flow")
+            when (flow) {
+                "past" -> startPastFlow()
+                "realtime" -> startRealtimeFlow()
+            }
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         // [지도 영역]
         MapContent(
@@ -128,7 +174,7 @@ fun ReportScreen() {
                 naverMap = map  // 지도가 준비되면 객체를 저장
             }
         )
-        if (!geminiViewModel.isAnalyzing) {
+        if (!isSearching && !isRouteSelecting && !geminiViewModel.isAnalyzing) {
             // [하단 컨트롤 섹션]
             Column(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
                 // 필터 칩 & 내 위치 버튼 (네가 만든 기존 코드)
@@ -164,11 +210,49 @@ fun ReportScreen() {
                     home = homeTab,
                     report = reportTab,
                     my = myTab,
+                    // onSearchClick = { isSearching = true }, // ★ 클릭 시 검색창 활성화
                     onTabClick = { route -> selectedRoute = route },
                     onReportClick = { showReportMenu = !showReportMenu } // 버튼 누르면 메뉴 토글
                 )
             }
         }
+
+        /*  // [3. 검색 오버레이] - 검색 버튼 클릭 시 전체 화면을 덮음
+        if (isSearching) {
+            SearchScreen(
+                viewModel = searchViewModel,
+                onBackClick = { isSearching = false }, // 뒤로가기 시 검색 종료
+                // 검색 결과에서 '출발'을 눌렀을 때
+                onStartClick = { place ->
+                    startPlace = place
+                    isSearching = false
+                    isRouteSelecting = true // 경로 선택 화면으로 전환
+                },
+                // 검색 결과에서 '도착'을 눌렀을 때
+                onEndClick = { place ->
+                    endPlace = place
+                    isSearching = false
+                    isRouteSelecting = true // 경로 선택 화면으로 전환
+                }
+            )
+        }  */
+
+        /* // [4. 경로 선택 UI 오버레이] - 추가된 부분
+        if (isRouteSelecting) {
+            RouteSelectionScreen(
+                startPlace = startPlace,
+                endPlace = endPlace,
+                onBackClick = {
+                    isRouteSelecting = false
+                    isSearching = true // 다시 검색 화면으로 복귀
+                },
+                onSearchFieldClick = { isStartSearch ->
+                    // 여기서 다시 검색창을 띄워 출발지나 도착지를 변경하게 할 수 있음
+                    isSearching = true
+                    isRouteSelecting = false
+                }
+            )
+        } */
 
         // [1. 제보 등록 화면 오버레이]
         // AI 분석 결과가 있고, 지도 선택 모드가 아닐 때만 띄웁니다.
@@ -203,7 +287,7 @@ fun ReportScreen() {
         }
         // [제보 메뉴 오버레이]
         // 메뉴가 켜졌을 때만 나타남
-        if (showReportMenu) {
+        if (showReportMenu && !isSearching) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -217,20 +301,11 @@ fun ReportScreen() {
                     .padding(bottom = 120.dp), // 하단 바 위쪽에 배치
                 onPastReportClick = {
                     showReportMenu = false          // 1. 메뉴 팝업 닫기
-                    isPastFlow = true           // ★ 지난 상황 흐름 시작
-                    isPastReportLocationMode = true // 2. 위치 설정 화면 켜기
+                    startPastFlow()
                 },
                 onRealtimeReportClick = {
                     showReportMenu = false
-                    isPastFlow = false          // ★ 실시간 흐름 시작
-                    val permissionCheckResult = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
-                    if (permissionCheckResult == PackageManager.PERMISSION_GRANTED) {
-                        // 이미 권한이 있으면 바로 카메라 켬
-                        showCamera = true // ★ 카메라 화면 띄우기
-                    } else {
-                        // 권한이 없으면 요청 팝업 띄우기
-                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                    }
+                    startRealtimeFlow()
                 }
             )
         }

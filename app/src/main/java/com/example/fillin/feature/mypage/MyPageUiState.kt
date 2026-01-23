@@ -6,13 +6,14 @@ data class MyPageSummary(
     val totalViews: Int,
     val danger: Pair<Int, Int>,        // count to goal
     val inconvenience: Pair<Int, Int>, // count to goal
-    val discoveryCompleted: Boolean
+    val discoveryCount: Int            // 발견 제보 개수
 )
 
 data class MyReportCard(
     val id: Long,
     val title: String,
-    val meta: String
+    val meta: String,
+    val imageResId: Int? = null  // 제보 이미지 리소스 ID
 )
 
 sealed interface MyPageUiState {

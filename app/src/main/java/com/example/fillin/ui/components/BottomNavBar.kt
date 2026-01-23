@@ -128,7 +128,7 @@ fun BottomNavBar(
                         )
                         Spacer(Modifier.width(iconTextGap8))
                         Text(
-                            text = "어디로 갈까요?",
+                            text = "내주변 제보 검색",
                             color = Color(0xFFAAADB3),
                             fontSize = searchTextLineHeight.value.sp,
                             lineHeight = searchTextLineHeight.value.sp

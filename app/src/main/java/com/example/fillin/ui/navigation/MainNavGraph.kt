@@ -18,12 +18,14 @@ import com.example.fillin.feature.expiringreport.ExpiringReportDetailScreen
 import com.example.fillin.feature.myreports.MyReportsScreen
 import com.example.fillin.feature.notifications.NotificationsScreen
 import com.example.fillin.feature.report.ReportScreen
+import com.example.fillin.data.AppPreferences
 
 
 @Composable
 fun MainNavGraph(
     navController: NavHostController,
     innerPadding: androidx.compose.foundation.layout.PaddingValues,
+    appPreferences: AppPreferences,
     onHideBottomBar: () -> Unit = {},
     onShowBottomBar: () -> Unit = {}
 ) {
@@ -31,16 +33,22 @@ fun MainNavGraph(
         navController = navController,
         startDestination = MainTab.Home.route,
     ) {
-        composable(MainTab.Home.route) { HomeScreen() }
-        composable(MainTab.Report.route) { ReportScreen() }
+        composable(MainTab.Home.route) { HomeScreen(navController = navController) }
+        composable(MainTab.Report.route) { ReportScreen(navController = navController) }
         composable(MainTab.My.route) {
             MyPageScreen(
                 navController = navController,
+                appPreferences = appPreferences,
                 onHideBottomBar = onHideBottomBar,
                 onShowBottomBar = onShowBottomBar
             )
         }
-        composable(ROUTE_PROFILE_EDIT) { ProfileEditScreen(navController = navController) }
+        composable(ROUTE_PROFILE_EDIT) { 
+            ProfileEditScreen(
+                navController = navController,
+                appPreferences = appPreferences
+            ) 
+        }
         composable(ROUTE_SETTINGS) { SettingsScreen(navController = navController) }
         composable(ROUTE_NOTIFICATIONS) {
             NotificationsScreen(navController = navController)

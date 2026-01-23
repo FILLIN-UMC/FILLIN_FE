@@ -101,6 +101,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.example.fillin.R
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import com.example.fillin.data.AppPreferences
 
 data class ExpiringReportNotice(
     val daysLeft: Int,
@@ -120,6 +121,7 @@ private fun SetStatusBarColor(color: Color, darkIcons: Boolean) {
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
+            @Suppress("DEPRECATION")
             window.statusBarColor = color.toArgb()
             WindowCompat.getInsetsController(window, view)
                 .isAppearanceLightStatusBars = darkIcons
@@ -131,9 +133,12 @@ private fun SetStatusBarColor(color: Color, darkIcons: Boolean) {
 @Composable
 fun MyPageScreen(
     navController: NavController,
+    appPreferences: AppPreferences,
     onHideBottomBar: () -> Unit,
     onShowBottomBar: () -> Unit,
-    vm: MyPageViewModel = viewModel()
+    vm: MyPageViewModel = viewModel(
+        factory = MyPageViewModelFactory(appPreferences)
+    )
 ) {
     // 보이는 상태바(시간/배터리 등)를 위해 밝은 배경 + 어두운 아이콘으로 고정
     SetStatusBarColor(color = Color.White, darkIcons = true)
@@ -182,7 +187,7 @@ private fun MyPageContent(
                 dangerGoal = uiState.summary.danger.second,
                 inconvenienceCount = uiState.summary.inconvenience.first,
                 inconvenienceGoal = uiState.summary.inconvenience.second,
-                discoveryCompleted = uiState.summary.discoveryCompleted,
+                discoveryCount = uiState.summary.discoveryCount,
                 reports = uiState.reports,
                 onNotificationsClick = onNavigateNotifications,
                 onNavigateProfileEdit = onNavigateProfileEdit,
@@ -206,7 +211,7 @@ private fun MyPageSuccess(
     dangerGoal: Int,
     inconvenienceCount: Int,
     inconvenienceGoal: Int,
-    discoveryCompleted: Boolean,
+    discoveryCount: Int,
     reports: List<MyReportCard>,
     onNotificationsClick: () -> Unit,
     onNavigateProfileEdit: () -> Unit,
@@ -487,7 +492,7 @@ private fun MyPageSuccess(
                     )
                     DiscoveryMissionCard(
                         modifier = Modifier.weight(1f),
-                        completed = discoveryCompleted
+                        count = discoveryCount
                     )
                 }
 
@@ -515,6 +520,7 @@ private fun MyPageSuccess(
                             modifier = Modifier.width(170.dp),
                             title = r.title,
                             meta = r.meta,
+                            imageResId = r.imageResId,
                             badgeCount = 5
                         )
                     }
@@ -567,7 +573,7 @@ private fun TagChip(
 @Composable
 private fun DiscoveryMissionCard(
     modifier: Modifier = Modifier,
-    completed: Boolean
+    count: Int
 ) {
     val shape = RoundedCornerShape(14.dp)
     Surface(
@@ -587,7 +593,7 @@ private fun DiscoveryMissionCard(
             Spacer(Modifier.weight(1f))
 
             Text(
-                text = if (completed) "1" else "0",
+                text = count.toString(),
                 fontWeight = FontWeight.ExtraBold,
                 color = Color(0xFF555659),
                 fontSize = 16.sp
@@ -601,6 +607,7 @@ private fun SavedReportCard(
     modifier: Modifier = Modifier,
     title: String,
     meta: String,
+    imageResId: Int?,
     badgeCount: Int
 ) {
     val shape = RoundedCornerShape(14.dp)
@@ -613,8 +620,9 @@ private fun SavedReportCard(
         Box(
             modifier = Modifier.fillMaxSize()
         ) {
+            // 제보 이미지가 있으면 해당 이미지를 사용하고, 없으면 기본 이미지 사용
             Image(
-                painter = painterResource(id = R.drawable.ic_report_img),
+                painter = painterResource(id = imageResId ?: R.drawable.ic_report_img),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
@@ -930,7 +938,7 @@ private fun MyPageScreenPreview() {
             totalViews = 50,
             danger = 1 to 5,
             inconvenience = 0 to 5,
-            discoveryCompleted = true
+            discoveryCount = 1
         ),
         reports = listOf(
             MyReportCard(1, "행복길 2129-11", "가는길 255m"),
@@ -956,9 +964,10 @@ private fun MyPageScreenPreview() {
 @Composable
 private fun ProfileEditScreenPreview() {
     FILLINTheme {
+        val context = androidx.compose.ui.platform.LocalContext.current
         ProfileEditScreen(
             navController = rememberNavController(),
-            initialNickname = "방태림"
+            appPreferences = AppPreferences(context)
         )
     }
 }
@@ -975,9 +984,11 @@ private fun SettingsScreenPreview() {
 @Composable
 fun ProfileEditScreen(
     navController: NavController,
-    initialNickname: String = "방태림"
+    appPreferences: AppPreferences
 ) {
-    var nickname by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
+    var nickname by rememberSaveable(stateSaver = TextFieldValue.Saver) { 
+        mutableStateOf(TextFieldValue(appPreferences.getNickname())) 
+    }
     var isNicknameChecked by rememberSaveable { mutableStateOf(false) }
     var isNicknameAvailable by rememberSaveable { mutableStateOf(false) }
 
@@ -1202,7 +1213,8 @@ fun ProfileEditScreen(
                 .padding(bottom = 18.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .clickable(enabled = isNicknameChecked && isNicknameAvailable) {
-                    // TODO: 완료 동작(저장) 연결
+                    // 닉네임 저장
+                    appPreferences.setNickname(nickname.text.trim())
                     navController.popBackStack()
                 },
             shape = RoundedCornerShape(999.dp),

@@ -28,10 +28,14 @@ import com.example.fillin.feature.mypage.ROUTE_PROFILE_EDIT
 import com.example.fillin.ui.components.BottomNavBar
 import com.example.fillin.ui.components.TabSpec
 import com.example.fillin.ui.navigation.MainNavGraph
+import com.example.fillin.data.AppPreferences
+import androidx.compose.ui.platform.LocalContext
 
 @Composable
 fun MainScreen() {
     val navController = rememberNavController()
+    val context = LocalContext.current
+    val appPreferences = remember { AppPreferences(context) }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
 
@@ -96,6 +100,7 @@ fun MainScreen() {
             MainNavGraph(
                 navController = navController,
                 innerPadding = innerPadding,
+                appPreferences = appPreferences,
                 onHideBottomBar = { isMyPageBottomBarVisible = false },
                 onShowBottomBar = { isMyPageBottomBarVisible = true }
             )
