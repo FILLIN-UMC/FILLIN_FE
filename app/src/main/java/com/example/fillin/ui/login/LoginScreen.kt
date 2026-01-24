@@ -14,6 +14,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextDecoration
@@ -25,7 +27,6 @@ import com.example.fillin.data.AppPreferences
 import com.example.fillin.navigation.Screen
 import com.example.fillin.ui.components.FillinBlueGradientBackground
 import kotlinx.coroutines.flow.collectLatest
-import com.example.fillin.BuildConfig
 
 @Composable
 fun LoginScreen(
@@ -34,7 +35,6 @@ fun LoginScreen(
 ) {
     val context = LocalContext.current
     val activity = context.findActivity()
-
 
     val authViewModel: AuthViewModel = viewModel(
         factory = AuthViewModelFactory(appPreferences)
@@ -76,10 +76,12 @@ fun LoginScreen(
         ) {
             Spacer(modifier = Modifier.weight(1f))
 
+            // ✅ 로고 이미지: colorFilter를 사용하여 하얀색으로 변경
             Image(
                 painter = painterResource(R.drawable.ic_fillin_logo),
                 contentDescription = "FILLIN Logo",
-                modifier = Modifier.size(180.dp)
+                modifier = Modifier.size(180.dp),
+                colorFilter = ColorFilter.tint(Color.White)
             )
 
             Spacer(modifier = Modifier.weight(1f))
@@ -88,7 +90,7 @@ fun LoginScreen(
                 horizontalArrangement = Arrangement.spacedBy(28.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // ✅ 카카오: ViewModel로 위임
+                // ✅ 카카오 버튼
                 IconCircleButton(
                     iconRes = R.drawable.ic_kakao,
                     onClick = {
@@ -100,7 +102,7 @@ fun LoginScreen(
                     }
                 )
 
-                // ✅ 구글: 아직 모의 (나중에 authViewModel.loginWithGoogle(...)로 바꾸면 됨)
+                // ✅ 구글 버튼
                 IconCircleButton(
                     iconRes = R.drawable.ic_google,
                     onClick = {
@@ -114,13 +116,13 @@ fun LoginScreen(
                         )
                     }
                 )
-
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
                 text = "로그인 안하고 구경할래요",
+                color = Color.White, // 배경이 블루 그래디언트라면 텍스트도 하얀색이 잘 보일 거예요
                 style = MaterialTheme.typography.bodyMedium.copy(
                     textDecoration = TextDecoration.Underline
                 ),
@@ -165,5 +167,3 @@ private fun IconCircleButton(
         }
     }
 }
-
-
