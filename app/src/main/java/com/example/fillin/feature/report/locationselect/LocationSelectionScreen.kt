@@ -16,9 +16,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.statusBarsPadding
 import com.example.fillin.data.kakao.RetrofitClient
 import com.example.fillin.feature.report.locationselect.CenterPin
-import com.example.fillin.ui.map.MapContent
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
+import com.example.fillin.ui.map.MapContent
 
 // 지도에서 장소 선택 화면
 @Composable

@@ -1,8 +1,20 @@
+import java.util.Properties
+
+
+// 2. local.properties 파일을 읽어오는 로직 추가
+val properties = Properties().apply {
+    val propertiesFile = project.rootProject.file("local.properties")
+    if (propertiesFile.exists()) {
+        load(propertiesFile.inputStream())
+    }
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    id("com.google.gms.google-services") version "4.4.2"
+    alias(libs.plugins.google.services)
+   // id("com.google.gms.google-services") version "4.4.2"
 }
 
 android {
@@ -19,6 +31,8 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        val apiKey = properties.getProperty("GEMINI_API_KEY") ?: ""
+        buildConfigField("String", "GEMINI_API_KEY", "\"$apiKey\"")
 
         // BuildConfig 상수로 Kakao Native App Key 노출
         val kakaoKey: String = (project.findProperty("KAKAO_NATIVE_APP_KEY") as String?)
@@ -26,10 +40,10 @@ android {
         buildConfigField("String", "KAKAO_NATIVE_APP_KEY", "\"$kakaoKey\"")
         manifestPlaceholders["KAKAO_NATIVE_APP_KEY"] = kakaoKey
 
-        // BuildConfig 상수로 Gemini API Key 노출
+      /*  // BuildConfig 상수로 Gemini API Key 노출
         val geminiKey: String = (project.findProperty("GEMINI_API_KEY") as String?)
             ?: ""
-        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiKey\"")
+        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiKey\"")*/
     }
 
     buildTypes {
@@ -102,6 +116,7 @@ dependencies {
 
     // Kakao SDK
     implementation("com.kakao.sdk:v2-user:2.20.1")
+    implementation(libs.androidx.compose.foundation.layout)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

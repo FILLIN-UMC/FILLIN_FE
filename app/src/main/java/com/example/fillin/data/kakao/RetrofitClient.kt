@@ -3,6 +3,7 @@ package com.example.fillin.data.kakao
 import com.example.fillin.data.ai.GeminiApiService
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import kotlin.getValue
 
 object RetrofitClient {
     private const val BASE_URL = "https://dapi.kakao.com/"

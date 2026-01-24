@@ -212,8 +212,29 @@ fun HomeScreen(
     // savedStateHandle.set() 후 즉시 감지되지 않을 수 있으므로 주기적 체크 사용
     var lastReportFlow by remember(backStackEntry) { mutableStateOf<String?>(null) }
     var lastSelectedReportId by remember(backStackEntry) { mutableStateOf<Long?>(null) }
-    
-    LaunchedEffect(backStackEntry) {
+
+    // [수정] 본인의 저장소(savedStateHandle)에서 "report_flow"를 실시간 관찰하는 상태 생성
+    val reportFlowState = navController?.currentBackStackEntry
+        ?.savedStateHandle
+        ?.getStateFlow<String?>("report_flow", null)
+        ?.collectAsState()
+
+    // [수정] 이제 reportFlowState.value가 바뀔 때마다 이 블록이 자동으로 실행됩니다.
+    LaunchedEffect(reportFlowState?.value) {
+        val flow = reportFlowState?.value
+        if (!flow.isNullOrBlank()) {
+            Log.d("HomeScreen", "Received flow: $flow")
+
+            // 신호를 받았으니 즉시 삭제 (중복 실행 방지)
+            navController.currentBackStackEntry?.savedStateHandle?.remove<String>("report_flow")
+
+            when (flow) {
+                "past" -> startPastFlow()
+                "realtime" -> startRealtimeFlow()
+            }
+        }
+    }
+ /*   LaunchedEffect(backStackEntry) {
         if (backStackEntry == null) return@LaunchedEffect
         
         // backStackEntry가 변경되면 lastReportFlow 초기화
@@ -248,7 +269,7 @@ fun HomeScreen(
             
             delay(50) // 50ms마다 체크
         }
-    }
+    } */
     
     // === [업로드 결과 관찰 및 알림 처리] ===
     LaunchedEffect(reportViewModel.uploadStatus) {
@@ -262,9 +283,46 @@ fun HomeScreen(
             reportViewModel.resetStatus()
         }
     }
-    
+    val isRealtimeReportScreenVisible = geminiViewModel.aiResult.isNotEmpty() &&
+            !isMapPickingMode && !isPastReportPhotoStage && !isPastReportLocationMode && !isPastFlow
+
+// [223라인] 지난 상황 제보 등록 화면이 보여야 하는 조건
+    val isPastReportScreenVisible = isPastFlow && !isPastReportPhotoStage &&
+            !isPastReportLocationMode && capturedUri != null &&
+            geminiViewModel.aiResult.isNotEmpty() && !geminiViewModel.isAnalyzing
+
+    // [수정] 모든 오버레이 상태를 감시하여 네비게이션 바 표시 여부를 한 번에 결정합니다.
+    val shouldHideBottomBar = remember(
+        showCamera,
+        selectedReport,
+        isMapPickingMode,
+        isPastReportLocationMode,
+        isPastReportPhotoStage,
+        isRealtimeReportScreenVisible,
+        isPastReportScreenVisible,
+        geminiViewModel.isAnalyzing, // AI 분석 상태 추가
+    ) {
+        showCamera ||
+                selectedReport != null ||
+                isMapPickingMode ||
+                isPastReportLocationMode ||
+                isPastReportPhotoStage ||
+                isRealtimeReportScreenVisible ||
+                isPastReportScreenVisible ||
+                geminiViewModel.isAnalyzing  // 분석 중일 때 숨김
+
+    }
+
+// 통합된 네비게이션 바 제어 로직
+    LaunchedEffect(shouldHideBottomBar) {
+        if (shouldHideBottomBar) {
+            onHideBottomBar()
+        } else {
+            onShowBottomBar()
+        }
+    }
     // === [카메라가 켜지면 네비게이션 바 숨기기, 닫히면 저장된 지도 위치로 복원] ===
-    LaunchedEffect(showCamera) {
+ /*   LaunchedEffect(showCamera) {
         if (showCamera) {
             onHideBottomBar()
         } else {
@@ -290,17 +348,17 @@ fun HomeScreen(
                 onShowBottomBar()
             }
         }
-    }
+    } */
     
     // === [제보 등록 화면 표시 여부 확인] ===
-    val isRealtimeReportScreenVisible = geminiViewModel.aiResult.isNotEmpty() && 
+/*    val isRealtimeReportScreenVisible = geminiViewModel.aiResult.isNotEmpty() &&
         !isMapPickingMode && !isPastReportPhotoStage && !isPastReportLocationMode && !isPastFlow
     val isPastReportScreenVisible = isPastFlow && !isPastReportPhotoStage && 
         !isPastReportLocationMode && capturedUri != null && 
-        geminiViewModel.aiResult.isNotEmpty() && !geminiViewModel.isAnalyzing
+        geminiViewModel.aiResult.isNotEmpty() && !geminiViewModel.isAnalyzing */
     
     // === [제보 카드 상태를 savedStateHandle에 저장 및 네비게이션 바 숨기기] ===
-    LaunchedEffect(selectedReport) {
+/*    LaunchedEffect(selectedReport) {
         navController?.currentBackStackEntry?.savedStateHandle?.set(
             "report_card_visible",
             selectedReport != null
@@ -314,9 +372,9 @@ fun HomeScreen(
                 onShowBottomBar()
             }
         }
-    }
+    } */
     
-    // === [제보 등록 화면이 표시될 때 네비게이션 바 숨기기] ===
+/*    // === [제보 등록 화면이 표시될 때 네비게이션 바 숨기기] ===
     LaunchedEffect(isRealtimeReportScreenVisible, isPastReportScreenVisible) {
         if (isRealtimeReportScreenVisible || isPastReportScreenVisible) {
             onHideBottomBar()
@@ -324,7 +382,7 @@ fun HomeScreen(
             // 카메라도 닫혀있고 제보 등록 화면도 닫혀있고 제보 카드도 닫혀있을 때만 네비게이션 바를 다시 보이게 함
             onShowBottomBar()
         }
-    }
+    } */
     
     // 샘플 제보 데이터 가져오기
     val sampleReports = remember {
@@ -1097,7 +1155,13 @@ fun HomeScreen(
                 onLocationSet = { selectedAddress ->
                     finalLocation = selectedAddress
                     isPastReportLocationMode = false
-                    isPastReportPhotoStage = true
+                    // [핵심 로직] 이미 사진이 있다면(등록 화면에서 위치 수정을 위해 온 경우)
+                    // 사진 선택 단계로 가지 않고 바로 등록 화면으로 돌아갑니다.
+                    if (capturedUri == null) {
+                        isPastReportPhotoStage = true       // 사진이 없을 때만 사진 선택 단계로 이동
+                    }
+                    // 사진이 이미 있다면, isPastReportScreenVisible 조건에 의해
+                    // 자동으로 ReportRegistrationScreen이 다시 뜹니다.
                 }
             )
         }

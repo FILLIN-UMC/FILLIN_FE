@@ -226,48 +226,28 @@ fun MainScreen(
                         .padding(bottom = 120.dp),
                     onPastReportClick = {
                         showReportMenu = false
-                        // 현재 Home 화면에 있으면 바로 savedStateHandle에 설정
-                        if (currentRoute == MainTab.Home.route) {
-                            try {
-                                val entry = innerNavController.getBackStackEntry(MainTab.Home.route)
-                                entry.savedStateHandle.set("report_flow", "past")
-                                Log.d("MainScreen", "Set report_flow to past directly")
-                            } catch (e: Exception) {
-                                Log.e("MainScreen", "Failed to set report_flow", e)
-                            }
-                        } else {
-                            // 다른 화면에 있으면 navigate
-                            pendingReportFlow = "past"
-                            innerNavController.navigate(MainTab.Home.route) {
-                                popUpTo(innerNavController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
+                        // [수정] '현재' 화면이 아니라 'Home' 화면의 저장소에 직접 값을 세팅합니다.
+                        innerNavController.getBackStackEntry(MainTab.Home.route)
+                            .savedStateHandle
+                            .set("report_flow", "past")
+
+                        innerNavController.navigate(MainTab.Home.route) {
+                            popUpTo(innerNavController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
                         }
                     },
                     onRealtimeReportClick = {
                         showReportMenu = false
-                        // 현재 Home 화면에 있으면 바로 savedStateHandle에 설정
-                        if (currentRoute == MainTab.Home.route) {
-                            try {
-                                val entry = innerNavController.getBackStackEntry(MainTab.Home.route)
-                                entry.savedStateHandle.set("report_flow", "realtime")
-                                Log.d("MainScreen", "Set report_flow to realtime directly")
-                            } catch (e: Exception) {
-                                Log.e("MainScreen", "Failed to set report_flow", e)
-                            }
-                        } else {
-                            // 다른 화면에 있으면 navigate
-                            pendingReportFlow = "realtime"
-                            innerNavController.navigate(MainTab.Home.route) {
-                                popUpTo(innerNavController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
+                        // [수정] 동일하게 'Home' 화면의 저장소를 대상으로 합니다.
+                        innerNavController.getBackStackEntry(MainTab.Home.route)
+                            .savedStateHandle
+                            .set("report_flow", "realtime")
+
+                        innerNavController.navigate(MainTab.Home.route) {
+                            popUpTo(innerNavController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
                         }
                     }
                 )
