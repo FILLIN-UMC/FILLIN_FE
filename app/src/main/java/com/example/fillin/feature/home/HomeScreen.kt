@@ -286,7 +286,9 @@ fun HomeScreen(
                 !isPastReportLocationMode && capturedUri != null && 
                 geminiViewModel.aiResult.isNotEmpty() && !geminiViewModel.isAnalyzing
             
-            if (!isRealtimeReportScreenVisible && !isPastReportScreenVisible) {
+            // 위치 선택, 사진 선택, 위치 설정 모드도 확인
+            if (!isRealtimeReportScreenVisible && !isPastReportScreenVisible && 
+                !isMapPickingMode && !isPastReportPhotoStage && !isPastReportLocationMode) {
                 onShowBottomBar()
             }
         }
@@ -310,7 +312,8 @@ fun HomeScreen(
             onHideBottomBar()
         } else {
             // 제보 카드가 닫힐 때, 다른 오버레이가 표시되지 않을 때만 네비게이션 바를 다시 보이게 함
-            if (!showCamera && !isRealtimeReportScreenVisible && !isPastReportScreenVisible) {
+            if (!showCamera && !isRealtimeReportScreenVisible && !isPastReportScreenVisible && 
+                !isMapPickingMode && !isPastReportPhotoStage && !isPastReportLocationMode) {
                 onShowBottomBar()
             }
         }
@@ -320,8 +323,18 @@ fun HomeScreen(
     LaunchedEffect(isRealtimeReportScreenVisible, isPastReportScreenVisible) {
         if (isRealtimeReportScreenVisible || isPastReportScreenVisible) {
             onHideBottomBar()
-        } else if (!showCamera && selectedReport == null) {
-            // 카메라도 닫혀있고 제보 등록 화면도 닫혀있고 제보 카드도 닫혀있을 때만 네비게이션 바를 다시 보이게 함
+        } else if (!showCamera && selectedReport == null && !isMapPickingMode && !isPastReportPhotoStage && !isPastReportLocationMode) {
+            // 카메라도 닫혀있고 제보 등록 화면도 닫혀있고 제보 카드도 닫혀있고 위치 선택/사진 선택 모드도 아닐 때만 네비게이션 바를 다시 보이게 함
+            onShowBottomBar()
+        }
+    }
+    
+    // === [위치 선택 모드, 사진 선택 모드, 위치 설정 모드일 때 네비게이션 바 숨기기] ===
+    LaunchedEffect(isMapPickingMode, isPastReportPhotoStage, isPastReportLocationMode) {
+        if (isMapPickingMode || isPastReportPhotoStage || isPastReportLocationMode) {
+            onHideBottomBar()
+        } else if (!showCamera && selectedReport == null && !isRealtimeReportScreenVisible && !isPastReportScreenVisible) {
+            // 다른 제보 관련 화면이 모두 닫혀있을 때만 네비게이션 바를 다시 보이게 함
             onShowBottomBar()
         }
     }
