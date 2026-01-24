@@ -25,6 +25,9 @@ class AppPreferences(context: Context) {
     private val _nicknameFlow = MutableStateFlow(getNickname())
     val nicknameFlow: StateFlow<String> = _nicknameFlow.asStateFlow()
 
+    private val _profileImageUriFlow = MutableStateFlow(getProfileImageUri())
+    val profileImageUriFlow: StateFlow<String?> = _profileImageUriFlow.asStateFlow()
+
     init {
         // SharedPreferences 변경 감지
         prefs.registerOnSharedPreferenceChangeListener { _, key ->
@@ -33,6 +36,7 @@ class AppPreferences(context: Context) {
                 KEY_LOGGED_IN -> _isLoggedInFlow.value = isLoggedIn()
                 KEY_TERMS_ACCEPTED -> _isTermsAcceptedFlow.value = isTermsAccepted()
                 KEY_PERMISSION_GRANTED -> _isPermissionGrantedFlow.value = isPermissionGranted()
+                KEY_PROFILE_IMAGE_URI -> _profileImageUriFlow.value = getProfileImageUri()
             }
         }
     }
@@ -68,6 +72,20 @@ class AppPreferences(context: Context) {
         _nicknameFlow.value = nickname
     }
 
+    // 프로필 이미지 URI
+    fun getProfileImageUri(): String? {
+        return prefs.getString(KEY_PROFILE_IMAGE_URI, null)
+    }
+
+    fun setProfileImageUri(uri: String?) {
+        if (uri == null) {
+            prefs.edit().remove(KEY_PROFILE_IMAGE_URI).commit()
+        } else {
+            prefs.edit().putString(KEY_PROFILE_IMAGE_URI, uri).commit()
+        }
+        _profileImageUriFlow.value = uri
+    }
+
     suspend fun clearAll() {
         prefs.edit().clear().apply()
         _isLoggedInFlow.value = false
@@ -91,5 +109,6 @@ class AppPreferences(context: Context) {
         private const val KEY_PERMISSION_GRANTED = "permission_granted"
         private const val KEY_LOCATION_HISTORY_CONSENT = "location_history_consent"
         private const val KEY_MARKETING_CONSENT = "marketing_consent"
+        private const val KEY_PROFILE_IMAGE_URI = "profile_image_uri"
     }
 }

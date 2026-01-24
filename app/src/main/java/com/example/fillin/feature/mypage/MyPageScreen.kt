@@ -3,8 +3,13 @@ package com.example.fillin.feature.mypage
 import android.R.attr.contentDescription
 import android.app.Activity
 import android.net.Uri
+import android.graphics.Color as AndroidColor
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.canhub.cropper.CropImageContract
+import com.canhub.cropper.CropImageContractOptions
+import com.canhub.cropper.CropImageOptions
+import com.canhub.cropper.CropImageView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
@@ -452,12 +457,26 @@ private fun MyPageSuccess(
                                 .background(Color(0xFFE5E7EB)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Image(
-                                painter = painterResource(id = R.drawable.ic_user_img),
-                                contentDescription = "프로필 이미지",
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
+                            // 저장된 프로필 이미지 URI 가져오기
+                            val context = androidx.compose.ui.platform.LocalContext.current
+                            val appPrefs = remember { AppPreferences(context) }
+                            val savedProfileImageUri by appPrefs.profileImageUriFlow.collectAsState()
+                            
+                            if (savedProfileImageUri != null) {
+                                coil.compose.AsyncImage(
+                                    model = savedProfileImageUri,
+                                    contentDescription = "프로필 이미지",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_user_img),
+                                    contentDescription = "프로필 이미지",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
                         }
 
                         Spacer(Modifier.width(12.dp))
@@ -1091,13 +1110,50 @@ fun ProfileEditScreen(
     var isNicknameChecked by rememberSaveable { mutableStateOf(false) }
     var isNicknameAvailable by rememberSaveable { mutableStateOf(false) }
 
-    // 프로필 이미지 선택(앨범 시스템 모달)
-    var profileImageUri by remember { mutableStateOf<Uri?>(null) }
+    // 프로필 이미지 선택 및 크롭 (AppPreferences에서 저장된 이미지 로드)
+    val savedImageUri = appPreferences.getProfileImageUri()
+    var profileImageUri by remember { 
+        mutableStateOf(savedImageUri?.let { Uri.parse(it) }) 
+    }
+    
+    // 크롭 결과 처리 launcher (완료 버튼 누를 때 저장됨)
+    val cropLauncher = rememberLauncherForActivityResult(
+        contract = CropImageContract()
+    ) { result ->
+        if (result.isSuccessful) {
+            profileImageUri = result.uriContent
+        }
+    }
+    
+    // 이미지 선택 launcher - 선택 후 크롭 화면으로 이동
     val pickProfileImageLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        // TODO: 실제로는 ViewModel/서버 업로드 등과 연결
-        profileImageUri = uri
+        uri?.let {
+            // 1:1 비율로 크롭 화면 실행
+            val cropOptions = CropImageContractOptions(
+                uri = it,
+                cropImageOptions = CropImageOptions(
+                    guidelines = CropImageView.Guidelines.ON,
+                    aspectRatioX = 1,
+                    aspectRatioY = 1,
+                    fixAspectRatio = true,
+                    cropShape = CropImageView.CropShape.RECTANGLE,
+                    activityTitle = "프로필 이미지 편집",
+                    activityMenuIconColor = AndroidColor.BLACK,
+                    toolbarColor = AndroidColor.WHITE,
+                    toolbarBackButtonColor = AndroidColor.BLACK,
+                    toolbarTitleColor = AndroidColor.BLACK,
+                    cropMenuCropButtonTitle = "완료",
+                    cropMenuCropButtonIcon = R.drawable.ic_check_circle,
+                    showCropOverlay = true,
+                    showProgressBar = true,
+                    autoZoomEnabled = true,
+                    multiTouchEnabled = true
+                )
+            )
+            cropLauncher.launch(cropOptions)
+        }
     }
 
     val maxLen = 15
@@ -1149,21 +1205,32 @@ fun ProfileEditScreen(
         Box(
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
-                .size(100.dp) // Box size == profile image size
+                .size(120.dp) // Box size == profile image size
                 .clickable {
                     pickProfileImageLauncher.launch("image/*")
                 },
             contentAlignment = Alignment.Center
         ) {
-            // 사용자 프로필 이미지
-            Image(
-                painter = painterResource(id = R.drawable.ic_profile_img),
-                contentDescription = "사용자 프로필 이미지",
-                modifier = Modifier
-                    .matchParentSize()
-                    .clip(CircleShape),
-                contentScale = ContentScale.Crop
-            )
+            // 사용자 프로필 이미지 (선택된 이미지가 있으면 표시, 없으면 기본 이미지)
+            if (profileImageUri != null) {
+                coil.compose.AsyncImage(
+                    model = profileImageUri,
+                    contentDescription = "사용자 프로필 이미지",
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_profile_img),
+                    contentDescription = "사용자 프로필 이미지",
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            }
 
             // 우측 하단 프로필 이미지 편집 아이콘
             Image(
@@ -1178,7 +1245,7 @@ fun ProfileEditScreen(
             )
         }
 
-        Spacer(Modifier.height(34.dp))
+        Spacer(Modifier.height(30.dp))
 
         // Nickname label + counter
         Row(
@@ -1305,24 +1372,34 @@ fun ProfileEditScreen(
         Spacer(Modifier.weight(1f))
 
         // Bottom CTA
+        // 닉네임이 확인되었거나, 프로필 이미지가 변경되었으면 완료 버튼 활성화
+        val hasProfileImageChanged = profileImageUri?.toString() != savedImageUri
+        val canComplete = (isNicknameChecked && isNicknameAvailable) || hasProfileImageChanged
+        
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(64.dp)
                 .padding(bottom = 18.dp)
                 .clip(RoundedCornerShape(999.dp))
-                .clickable(enabled = isNicknameChecked && isNicknameAvailable) {
-                    // 닉네임 저장
-                    appPreferences.setNickname(nickname.text.trim())
+                .clickable(enabled = canComplete) {
+                    // 프로필 이미지 저장
+                    if (hasProfileImageChanged) {
+                        appPreferences.setProfileImageUri(profileImageUri?.toString())
+                    }
+                    // 닉네임 저장 (닉네임 확인이 완료된 경우에만)
+                    if (isNicknameChecked && isNicknameAvailable) {
+                        appPreferences.setNickname(nickname.text.trim())
+                    }
                     navController.popBackStack()
                 },
             shape = RoundedCornerShape(999.dp),
-            color = if (isNicknameChecked && isNicknameAvailable) Color(0xFF4595E5) else Color(0xFFBFDBFE)
+            color = if (canComplete) Color(0xFF4595E5) else Color(0xFFBFDBFE)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Text(
                     text = "완료",
-                    color = if (isNicknameChecked && isNicknameAvailable) Color.White else Color(0xFFFFFFFF).copy(alpha = 0.7f),
+                    color = if (canComplete) Color.White else Color(0xFFFFFFFF).copy(alpha = 0.7f),
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 18.sp,
                     lineHeight = 18.sp

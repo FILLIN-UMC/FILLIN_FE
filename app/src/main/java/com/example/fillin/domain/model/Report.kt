@@ -4,6 +4,16 @@ enum class ReportType { DANGER, INCONVENIENCE, DISCOVERY }
 
 enum class ReportStatus { ACTIVE, EXPIRING, EXPIRED } // 등록된 제보 / 사라질 예정 / 사라진 제보
 
+/**
+ * 제보 등록자 정보
+ */
+data class ReporterInfo(
+    val userId: Long,
+    val nickname: String,
+    val profileImageResId: Int? = null,
+    val profileImageUrl: String? = null
+)
+
 data class Report(
     val id: Long,
     val title: String,      // 행복길 2129-11
@@ -27,5 +37,11 @@ data class Report(
     val feedbackConditionMetAtMillis: Long? = null,
     
     // EXPIRING 상태로 변경된 시점 (3일 후 EXPIRED로 변경)
-    val expiringAtMillis: Long? = null
+    val expiringAtMillis: Long? = null,
+    
+    // 현재 사용자가 등록한 제보인지 여부
+    val isUserOwned: Boolean = false,
+    
+    // 제보 등록자 정보
+    val reporterInfo: ReporterInfo? = null
 )

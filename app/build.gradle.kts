@@ -72,6 +72,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
+    implementation("androidx.appcompat:appcompat:1.7.0")
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
@@ -117,6 +118,9 @@ dependencies {
     // Kakao SDK
     implementation("com.kakao.sdk:v2-user:2.20.1")
     implementation(libs.androidx.compose.foundation.layout)
+
+    // Image Cropper
+    implementation("com.vanniktech:android-image-cropper:4.6.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
