@@ -42,14 +42,16 @@ enum class FeedbackChoice {
 sealed class NotificationContent {
     data class Feedback(
         val actorName: String,
-        val choice: FeedbackChoice
+        val choice: FeedbackChoice,
+        val reportId: Long
     ) : NotificationContent()
 
     /**
      * 2. 내가 아닌 제3자가 나의 제보에 좋아요(저장)한 경우
      */
     data class Saved(
-        val actorName: String
+        val actorName: String,
+        val reportId: Long
     ) : NotificationContent()
 
     /**
@@ -238,7 +240,8 @@ private fun NotificationItemPreview() {
         NotificationItem(
             content = NotificationContent.Feedback(
                 actorName = "조치원고라니",
-                choice = FeedbackChoice.STILL_DANGEROUS
+                choice = FeedbackChoice.STILL_DANGEROUS,
+                reportId = 1L
             ),
             timeText = "5분 전",
             isRead = false,

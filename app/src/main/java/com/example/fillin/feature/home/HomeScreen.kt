@@ -70,9 +70,12 @@ import com.example.fillin.domain.model.ReportType
 import com.example.fillin.domain.model.ReportStatus
 import com.example.fillin.ui.map.MapContent
 import com.example.fillin.ui.map.PresentLocation
+import com.google.android.gms.location.*
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.example.fillin.ui.theme.FILLINTheme
-import com.example.fillin.feature.expiringreport.ExpiringReportCard
-import com.example.fillin.feature.expiringreport.ExpiringReportUi
+import com.example.fillin.ui.components.ReportCard
+import com.example.fillin.ui.components.ReportCardUi
+import com.example.fillin.ui.components.ValidityStatus
 import com.naver.maps.map.NaverMap
 import com.naver.maps.map.overlay.Marker
 import com.naver.maps.map.overlay.OverlayImage
@@ -128,6 +131,19 @@ fun HomeScreen(
     
     // 선택된 제보 (마커 클릭 시 표시할 제보)
     var selectedReport by remember { mutableStateOf<ReportWithLocation?>(null) }
+    
+    // 사용자 피드백 선택 상태 추적 (reportId -> "positive" | "negative" | null)
+    var userFeedbackSelections by remember(context) { 
+        mutableStateOf(SharedReportData.loadUserFeedbackSelections(context))
+    }
+    
+    // 사용자 좋아요 상태 추적 (reportId -> Boolean)
+    var userLikeStates by remember(context) { 
+        mutableStateOf(SharedReportData.loadUserLikeStates(context))
+    }
+    
+    // 사용자 현재 위치
+    var currentUserLocation by remember { mutableStateOf<android.location.Location?>(null) }
     
     // === [제보 기능 관련 상태] ===
     var showReportMenu by remember { mutableStateOf(false) } // 제보 메뉴 표시 여부
@@ -195,12 +211,14 @@ fun HomeScreen(
     // savedStateHandle의 변경을 감지하기 위해 주기적으로 체크
     // savedStateHandle.set() 후 즉시 감지되지 않을 수 있으므로 주기적 체크 사용
     var lastReportFlow by remember(backStackEntry) { mutableStateOf<String?>(null) }
+    var lastSelectedReportId by remember(backStackEntry) { mutableStateOf<Long?>(null) }
     
     LaunchedEffect(backStackEntry) {
         if (backStackEntry == null) return@LaunchedEffect
         
         // backStackEntry가 변경되면 lastReportFlow 초기화
         lastReportFlow = null
+        lastSelectedReportId = null
         
         while (true) {
             val flow = savedStateHandle?.get<String>("report_flow")
@@ -227,6 +245,7 @@ fun HomeScreen(
                     }
                 }
             }
+            
             delay(50) // 50ms마다 체크
         }
     }
@@ -249,7 +268,6 @@ fun HomeScreen(
         if (showCamera) {
             onHideBottomBar()
         } else {
-            onShowBottomBar()
             // 카메라가 닫힐 때 lastReportFlow 초기화하여 다시 실시간 제보를 누를 수 있도록 함
             lastReportFlow = null
             savedCameraPosition?.let { savedPosition ->
@@ -261,6 +279,50 @@ fun HomeScreen(
                     map.moveCamera(cameraUpdate)
                 }
             }
+            // ReportRegistrationScreen이 표시되지 않을 때만 네비게이션 바를 다시 보이게 함
+            val isRealtimeReportScreenVisible = geminiViewModel.aiResult.isNotEmpty() && 
+                !isMapPickingMode && !isPastReportPhotoStage && !isPastReportLocationMode && !isPastFlow
+            val isPastReportScreenVisible = isPastFlow && !isPastReportPhotoStage && 
+                !isPastReportLocationMode && capturedUri != null && 
+                geminiViewModel.aiResult.isNotEmpty() && !geminiViewModel.isAnalyzing
+            
+            if (!isRealtimeReportScreenVisible && !isPastReportScreenVisible) {
+                onShowBottomBar()
+            }
+        }
+    }
+    
+    // === [제보 등록 화면 표시 여부 확인] ===
+    val isRealtimeReportScreenVisible = geminiViewModel.aiResult.isNotEmpty() && 
+        !isMapPickingMode && !isPastReportPhotoStage && !isPastReportLocationMode && !isPastFlow
+    val isPastReportScreenVisible = isPastFlow && !isPastReportPhotoStage && 
+        !isPastReportLocationMode && capturedUri != null && 
+        geminiViewModel.aiResult.isNotEmpty() && !geminiViewModel.isAnalyzing
+    
+    // === [제보 카드 상태를 savedStateHandle에 저장 및 네비게이션 바 숨기기] ===
+    LaunchedEffect(selectedReport) {
+        navController?.currentBackStackEntry?.savedStateHandle?.set(
+            "report_card_visible",
+            selectedReport != null
+        )
+        // 제보 카드가 표시될 때 네비게이션 바 숨기기
+        if (selectedReport != null) {
+            onHideBottomBar()
+        } else {
+            // 제보 카드가 닫힐 때, 다른 오버레이가 표시되지 않을 때만 네비게이션 바를 다시 보이게 함
+            if (!showCamera && !isRealtimeReportScreenVisible && !isPastReportScreenVisible) {
+                onShowBottomBar()
+            }
+        }
+    }
+    
+    // === [제보 등록 화면이 표시될 때 네비게이션 바 숨기기] ===
+    LaunchedEffect(isRealtimeReportScreenVisible, isPastReportScreenVisible) {
+        if (isRealtimeReportScreenVisible || isPastReportScreenVisible) {
+            onHideBottomBar()
+        } else if (!showCamera && selectedReport == null) {
+            // 카메라도 닫혀있고 제보 등록 화면도 닫혀있고 제보 카드도 닫혀있을 때만 네비게이션 바를 다시 보이게 함
+            onShowBottomBar()
         }
     }
     
@@ -269,16 +331,134 @@ fun HomeScreen(
         SampleReportData.getSampleReports()
     }
     
+    // SharedPreferences에서 피드백 데이터 로드 및 적용
+    val sampleReportsWithFeedback = remember(context) {
+        SharedReportData.loadFeedbackFromPreferences(context, sampleReports)
+    }
+    
     // 제보 상태 업데이트 (피드백 조건에 따라 EXPIRING/EXPIRED 상태로 변경)
-    val updatedSampleReports = remember(sampleReports) {
-        sampleReports.map { reportWithLocation ->
-            val updatedReport = ReportStatusManager.updateReportStatus(reportWithLocation.report)
-            reportWithLocation.copy(report = updatedReport)
-        }
+    // mutableStateList로 변경하여 피드백 업데이트 시 실시간 반영
+    var updatedSampleReports by remember { 
+        mutableStateOf(
+            sampleReportsWithFeedback.map { reportWithLocation ->
+                val updatedReport = ReportStatusManager.updateReportStatus(reportWithLocation.report)
+                reportWithLocation.copy(report = updatedReport)
+            }
+        )
     }
     
     // 제보 데이터를 공유 객체에 저장
     LaunchedEffect(updatedSampleReports) {
+        SharedReportData.setReports(updatedSampleReports)
+    }
+    
+    // === [알림에서 제보 선택 처리] ===
+    LaunchedEffect(backStackEntry, updatedSampleReports) {
+        if (backStackEntry == null) return@LaunchedEffect
+        
+        // backStackEntry가 변경되면 lastSelectedReportId 초기화
+        lastSelectedReportId = null
+        
+        while (true) {
+            // selected_report_id 감지 및 처리
+            val reportId = savedStateHandle?.get<Long>("selected_report_id")
+            if (reportId != null && reportId != lastSelectedReportId) {
+                Log.d("HomeScreen", "Detected selected_report_id: $reportId")
+                // 먼저 remove하여 중복 실행 방지
+                savedStateHandle?.remove<Long>("selected_report_id")
+                // lastSelectedReportId 업데이트하여 중복 처리 방지
+                lastSelectedReportId = reportId
+                
+                // 해당 제보 찾기
+                val targetReport = updatedSampleReports.find { it.report.id == reportId }
+                if (targetReport != null) {
+                    // 제보 선택 및 지도 이동
+                    selectedReport = targetReport
+                    naverMap?.let { map ->
+                        val cameraUpdate = CameraUpdate.scrollTo(
+                            LatLng(targetReport.latitude, targetReport.longitude)
+                        ).animate(CameraAnimation.Easing)
+                        map.moveCamera(cameraUpdate)
+                    }
+                } else {
+                    Log.w("HomeScreen", "Report with id $reportId not found")
+                }
+            }
+            
+            delay(50) // 50ms마다 체크
+        }
+    }
+    
+    // 좋아요 토글 함수
+    fun toggleLike(reportId: Long) {
+        val currentLikeState = userLikeStates[reportId] ?: updatedSampleReports.find { it.report.id == reportId }?.report?.isSaved ?: false
+        val newLikeState = !currentLikeState
+        userLikeStates = userLikeStates + (reportId to newLikeState)
+        
+        // SharedPreferences에 좋아요 상태 저장
+        SharedReportData.saveUserLikeState(context, reportId, newLikeState)
+    }
+    
+    // 피드백 업데이트 함수 (토글 방식)
+    fun updateFeedback(reportId: Long, isPositive: Boolean) {
+        val currentSelection = userFeedbackSelections[reportId]
+        val newSelection = when {
+            // 같은 버튼을 다시 누르면 취소
+            (isPositive && currentSelection == "positive") || (!isPositive && currentSelection == "negative") -> null
+            // 다른 버튼을 누르면 이전 선택 취소 후 새로운 선택 적용
+            else -> if (isPositive) "positive" else "negative"
+        }
+        
+        // 사용자 피드백 선택 상태 업데이트
+        userFeedbackSelections = userFeedbackSelections + (reportId to newSelection)
+        
+        // SharedPreferences에 사용자 선택 상태 저장
+        SharedReportData.saveUserFeedbackSelection(context, reportId, newSelection)
+        
+        // 제보 데이터 업데이트
+        updatedSampleReports = updatedSampleReports.map { reportWithLocation ->
+            if (reportWithLocation.report.id == reportId) {
+                val currentPositiveCount = reportWithLocation.report.positiveFeedbackCount
+                val currentNegativeCount = reportWithLocation.report.negativeFeedbackCount
+                
+                // 이전 선택 취소
+                val adjustedPositiveCount = when (currentSelection) {
+                    "positive" -> maxOf(0, currentPositiveCount - 1)
+                    else -> currentPositiveCount
+                }
+                val adjustedNegativeCount = when (currentSelection) {
+                    "negative" -> maxOf(0, currentNegativeCount - 1)
+                    else -> currentNegativeCount
+                }
+                
+                // 새로운 선택 적용
+                val updatedPositiveCount = when (newSelection) {
+                    "positive" -> adjustedPositiveCount + 1
+                    else -> adjustedPositiveCount
+                }
+                val updatedNegativeCount = when (newSelection) {
+                    "negative" -> adjustedNegativeCount + 1
+                    else -> adjustedNegativeCount
+                }
+                
+                // SharedPreferences에 저장
+                SharedReportData.saveFeedbackToPreferences(
+                    context,
+                    reportId,
+                    updatedPositiveCount,
+                    updatedNegativeCount
+                )
+                
+                val updatedReport = reportWithLocation.report.copy(
+                    positiveFeedbackCount = updatedPositiveCount,
+                    negativeFeedbackCount = updatedNegativeCount
+                )
+                reportWithLocation.copy(report = updatedReport)
+            } else {
+                reportWithLocation
+            }
+        }
+        // SharedReportData에도 반영
         SharedReportData.setReports(updatedSampleReports)
     }
     
@@ -287,7 +467,7 @@ fun HomeScreen(
         val now = System.currentTimeMillis()
         val threeDaysAgo = now - (3 * 24 * 60 * 60 * 1000L) // 3일 전
         
-        updatedSampleReports
+        val filtered = updatedSampleReports
             .filter { reportWithLocation: ReportWithLocation ->
                 // ACTIVE 상태이고 최근 3일 필터링
                 reportWithLocation.report.status == ReportStatus.ACTIVE &&
@@ -306,6 +486,9 @@ fun HomeScreen(
                     reportWithLocation.report.createdAtMillis
                 }
             )
+        
+        Log.d("HomeScreen", "Filtered reports count: ${filtered.size}, Total reports: ${updatedSampleReports.size}")
+        filtered
     }
     
     // 현재 표시할 알림 인덱스
@@ -324,8 +507,17 @@ fun HomeScreen(
     // 현재 표시할 제보
     val currentReport = remember(currentNotificationIndex, filteredAndSortedReports) {
         if (filteredAndSortedReports.isNotEmpty()) {
-            filteredAndSortedReports[currentNotificationIndex]
-        } else null
+            val index = currentNotificationIndex.coerceIn(0, filteredAndSortedReports.size - 1)
+            filteredAndSortedReports[index]
+        } else {
+            Log.d("HomeScreen", "No filtered reports available for notification banner")
+            null
+        }
+    }
+    
+    // 디버깅: currentReport 상태 로깅
+    LaunchedEffect(currentReport, filteredAndSortedReports.size) {
+        Log.d("HomeScreen", "Current report: ${currentReport?.report?.meta}, Filtered count: ${filteredAndSortedReports.size}, Index: $currentNotificationIndex")
     }
     
     // 커스텀 위치 핀 아이콘 생성 함수 (파란색 원, 흰색 원형 테두리, 위쪽 화살표)
@@ -536,6 +728,33 @@ fun HomeScreen(
         return OverlayImage.fromBitmap(bitmap)
     }
     
+    // 사용자 현재 위치 가져오기
+    LaunchedEffect(Unit) {
+        if (ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+            val cancellationTokenSource = CancellationTokenSource()
+            val currentLocationRequest = CurrentLocationRequest.Builder()
+                .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+                .setDurationMillis(5000)
+                .build()
+            
+            try {
+                fusedLocationClient.getCurrentLocation(currentLocationRequest, cancellationTokenSource.token)
+                    .addOnSuccessListener { location ->
+                        location?.let {
+                            currentUserLocation = it
+                        }
+                    }
+            } catch (e: Exception) {
+                Log.e("Location", "현재 위치를 가져오는데 실패했습니다", e)
+            }
+        }
+    }
+    
     // 두 좌표 간 거리 계산 (미터 단위)
     fun calculateDistanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
         val earthRadius = 6371000.0 // 지구 반지름 (미터)
@@ -657,7 +876,11 @@ fun HomeScreen(
                         }
                         // 마커 클릭 리스너 추가
                         setOnClickListener {
-                            selectedReport = reportWithLocation
+                            // updatedSampleReports에서 최신 데이터 가져오기
+                            val latestReport = updatedSampleReports.find { 
+                                it.report.id == reportWithLocation.report.id 
+                            } ?: reportWithLocation
+                            selectedReport = latestReport
                             true
                         }
                     }
@@ -737,21 +960,6 @@ fun HomeScreen(
             }
         )
         
-        // 상단 알림 배너
-        if (showNotificationBanner && currentReport != null) {
-            NotificationBanner(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = 16.dp)
-                    .fillMaxWidth()
-                    .padding(horizontal = 32.dp)
-                    .aspectRatio(348f / 48f),
-                report = currentReport.report,
-                onDismiss = { showNotificationBanner = false }
-            )
-        }
-        
         // 내 위치 버튼 (카테고리 필터와 동일한 높이, 네비게이션바 끝 위치)
         LocationButton(
             modifier = Modifier
@@ -800,26 +1008,6 @@ fun HomeScreen(
                 }
             }
         )
-        
-        // 제보 카드 표시 (마커 클릭 시)
-        selectedReport?.let { reportWithLocation ->
-            val expiringReportUi = convertToExpiringReportUi(reportWithLocation)
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.5f))
-                    .clickable { selectedReport = null }
-                    .padding(16.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                ExpiringReportCard(
-                    report = expiringReportUi,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(enabled = false) { } // 카드 내부 클릭 방지
-                )
-            }
-        }
         
         // === [제보 관련 UI 오버레이] ===
         
@@ -958,11 +1146,113 @@ fun HomeScreen(
             )
         }
         
+        // 상단 알림 배너 (제보 카드가 표시되어도 그대로 표시)
+        if (showNotificationBanner && currentReport != null) {
+            NotificationBanner(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 16.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = 32.dp)
+                    .aspectRatio(348f / 48f),
+                report = currentReport.report,
+                onDismiss = { showNotificationBanner = false }
+            )
+        }
+        
+        // 제보 카드 표시 (마커 클릭 시) - 가장 마지막에 렌더링하여 최상위 레벨에 표시
+        selectedReport?.let { reportWithLocation ->
+            // 피드백 업데이트 시 selectedReport도 업데이트
+            // updatedSampleReports에서 최신 데이터를 가져와서 항상 최신 피드백 수를 표시
+            val currentReportWithLocation = remember(updatedSampleReports, reportWithLocation.report.id) {
+                updatedSampleReports.find { it.report.id == reportWithLocation.report.id } 
+                    ?: reportWithLocation
+            }
+            val reportCardUi = remember(currentReportWithLocation, currentUserLocation) { 
+                convertToReportCardUi(currentReportWithLocation, currentUserLocation) 
+            }
+            // 배경 오버레이 (전체 화면을 덮어 네비게이션 바까지 어둡게 처리)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable { selectedReport = null }
+            )
+            // 제보 카드 (배경 위에 표시)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    ReportCard(
+                        report = reportCardUi,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = false) { }, // 카드 내부 클릭 방지
+                        selectedFeedback = userFeedbackSelections[reportCardUi.reportId],
+                        isLiked = userLikeStates[reportCardUi.reportId] ?: reportCardUi.isLiked,
+                        onPositiveFeedback = {
+                            updateFeedback(reportCardUi.reportId, true)
+                            // selectedReport 업데이트
+                            selectedReport = updatedSampleReports.find { it.report.id == reportCardUi.reportId }
+                        },
+                        onNegativeFeedback = {
+                            updateFeedback(reportCardUi.reportId, false)
+                            // selectedReport 업데이트
+                            selectedReport = updatedSampleReports.find { it.report.id == reportCardUi.reportId }
+                        },
+                        onLikeToggle = {
+                            toggleLike(reportCardUi.reportId)
+                        }
+                    )
+                    
+                    // 제보 카드 닫기 버튼
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(Color.White)
+                            .clickable { selectedReport = null },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "닫기",
+                            tint = Color.Black,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+            }
+        }
+        
     }
 }
 
-// ReportWithLocation을 ExpiringReportUi로 변환하는 헬퍼 함수
-private fun convertToExpiringReportUi(reportWithLocation: ReportWithLocation): ExpiringReportUi {
+// ReportWithLocation을 ReportCardUi로 변환하는 헬퍼 함수
+private fun convertToReportCardUi(
+    reportWithLocation: ReportWithLocation,
+    currentUserLocation: android.location.Location?
+): ReportCardUi {
+    // 두 좌표 간 거리 계산 (미터 단위)
+    fun calculateDistanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val earthRadius = 6371000.0 // 지구 반지름 (미터)
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = sin(dLat / 2).pow(2) +
+                cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
+                sin(dLon / 2).pow(2)
+        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        return earthRadius * c
+    }
+    
     val report = reportWithLocation.report
     
     // 타입에 따른 라벨과 색상
@@ -988,12 +1278,27 @@ private fun convertToExpiringReportUi(reportWithLocation: ReportWithLocation): E
     
     // 제목: report.meta가 실제 제목 (예: "맨홀 뚜껑 역류")
     // 주소: report.title이 주소 (예: "서울시 마포구 양화로 188 홍대입구역 1번 출구 앞")
-    // 거리: report.meta에 거리 정보가 포함되어 있을 수도 있지만, 현재는 제목으로 사용
     val title = report.meta // meta가 제목
-    val distance = "" // 거리 정보는 별도로 없으므로 빈 문자열
     
-    return ExpiringReportUi(
-        warningText = if (report.status == ReportStatus.EXPIRING) "오래된 제보일 수 있어요" else "",
+    // 유효성 상태 계산
+    val validityStatus = calculateValidityStatus(report)
+    
+    // 거리 계산
+    val distance = if (currentUserLocation != null) {
+        val distanceMeters = calculateDistanceMeters(
+            currentUserLocation.latitude,
+            currentUserLocation.longitude,
+            reportWithLocation.latitude,
+            reportWithLocation.longitude
+        )
+        "가는 길 ${distanceMeters.toInt()}m"
+    } else {
+        ""
+    }
+    
+    return ReportCardUi(
+        reportId = report.id, // 제보 ID 추가
+        validityStatus = validityStatus,
         imageRes = report.imageResId ?: R.drawable.ic_report_img,
         views = report.viewCount,
         typeLabel = typeLabel,
@@ -1008,6 +1313,40 @@ private fun convertToExpiringReportUi(reportWithLocation: ReportWithLocation): E
         dangerCount = report.negativeFeedbackCount,
         isLiked = report.isSaved
     )
+}
+
+// 유효성 상태 계산 함수
+private fun calculateValidityStatus(report: Report): ValidityStatus {
+    val currentTimeMillis = System.currentTimeMillis()
+    val twoWeeksInMillis = 14 * 24 * 60 * 60 * 1000L // 2주
+    
+    // 조건 1: 등록한지 2주 이상 된 제보는 "오래된 제보일 수 있어요"
+    val daysSinceCreation = currentTimeMillis - report.createdAtMillis
+    if (daysSinceCreation >= twoWeeksInMillis) {
+        return ValidityStatus.INVALID
+    }
+    
+    // 조건 2: 피드백 비율로 판단
+    val totalFeedback = report.positiveFeedbackCount + report.negativeFeedbackCount
+    if (totalFeedback == 0) {
+        // 피드백이 없으면 기본적으로 유효 상태
+        return ValidityStatus.VALID
+    }
+    
+    val positiveRatio = report.positiveFeedbackCount.toDouble() / totalFeedback
+    
+    // 긍정 의견 70%~100%: "최근에도 확인됐어요"
+    if (positiveRatio >= 0.7) {
+        return ValidityStatus.VALID
+    }
+    
+    // 긍정 의견 40%~60%: "제보 의견이 나뉘어요"
+    if (positiveRatio >= 0.4 && positiveRatio <= 0.6) {
+        return ValidityStatus.INTERMEDIATE
+    }
+    
+    // 그 외 (0%~40%): 기본적으로 유효 상태 (피드백이 적거나 부정적이어도 아직 유효할 수 있음)
+    return ValidityStatus.VALID
 }
 
 @Composable
@@ -1054,7 +1393,7 @@ private fun NotificationBanner(
                         .background(categoryColor)
                 )
                 
-                Spacer(Modifier.width(4.dp))
+                Spacer(Modifier.width(8.dp))
                 
                 // 주소와 meta를 분리하여 표시
                 Row(
@@ -1241,10 +1580,9 @@ private fun LocationButton(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = Icons.Default.LocationOn,
+        Image(
+            painter = painterResource(id = R.drawable.ic_user_location),
             contentDescription = "내 위치",
-            tint = Color(0xFF4090E0),
             modifier = Modifier.size(24.dp)
         )
     }

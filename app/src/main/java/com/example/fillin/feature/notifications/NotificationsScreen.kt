@@ -21,6 +21,10 @@ import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,16 +33,24 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
 import com.example.fillin.R
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.fillin.ui.theme.FILLINTheme
+import com.example.fillin.ui.main.MainTab
+import com.example.fillin.feature.mypage.ROUTE_NOTIFICATIONS
+import com.example.fillin.feature.mypage.ROUTE_EXPIRING_REPORT_DETAIL
+import com.example.fillin.data.SharedReportData
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.navigation.NavGraph.Companion.findStartDestination
 
 private data class NotificationUiModel(
     val id: String,
@@ -51,29 +63,38 @@ private data class NotificationUiModel(
 
 @Composable
 fun NotificationsScreen(navController: NavController) {
+    val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
     val now = remember { Instant.now() }
+    
+    // 알림 확인 상태 로드
+    var readNotificationIds by remember(context) { 
+        mutableStateOf(SharedReportData.loadNotificationReadStates(context))
+    }
 
     // 5가지 종류(피드백/저장/사라질제보/뱃지 획득/시스템) 예시 알림
-    val sampleNotifications = remember(now) {
+    val sampleNotifications = remember(now, readNotificationIds) {
         listOf(
             NotificationUiModel(
                 id = "sample_feedback",
                 content = NotificationContent.Feedback(
                     actorName = "조치원고라니",
-                    choice = FeedbackChoice.STILL_DANGEROUS
+                    choice = FeedbackChoice.STILL_DANGEROUS,
+                    reportId = 1L // 예시 제보 ID
                 ),
                 createdAt = now.minus(5, ChronoUnit.MINUTES),
-                isRead = false,
+                isRead = readNotificationIds.contains("sample_feedback"),
                 avatarRes = R.drawable.ic_user_img,
                 thumbnailRes = R.drawable.ic_report_img
             ),
             NotificationUiModel(
                 id = "sample_saved",
                 content = NotificationContent.Saved(
-                    actorName = "조치원고라니"
+                    actorName = "조치원고라니",
+                    reportId = 2L // 예시 제보 ID
                 ),
                 createdAt = now.minus(2, ChronoUnit.HOURS),
-                isRead = true,
+                isRead = readNotificationIds.contains("sample_saved"),
                 avatarRes = R.drawable.ic_user_img,
                 thumbnailRes = R.drawable.ic_report_img
             ),
@@ -84,7 +105,7 @@ fun NotificationsScreen(navController: NavController) {
                     summaryText = "위험1, 발견2"
                 ),
                 createdAt = now.minus(3, ChronoUnit.DAYS),
-                isRead = false,
+                isRead = readNotificationIds.contains("sample_expiring"),
                 avatarRes = R.drawable.ic_user_img,
                 thumbnailRes = R.drawable.ic_report_img
             ),
@@ -95,7 +116,7 @@ fun NotificationsScreen(navController: NavController) {
                     totalCompletedReports = 9
                 ),
                 createdAt = now.minus(1, ChronoUnit.DAYS),
-                isRead = false,
+                isRead = readNotificationIds.contains("sample_badge"),
                 avatarRes = R.drawable.ic_user_img,
                 thumbnailRes = null
             ),
@@ -105,7 +126,7 @@ fun NotificationsScreen(navController: NavController) {
                     title = "[공지] 서비스 업데이트 안내"
                 ),
                 createdAt = now.minus(20, ChronoUnit.DAYS),
-                isRead = true,
+                isRead = readNotificationIds.contains("sample_system"),
                 avatarRes = R.drawable.ic_user_img,
                 thumbnailRes = null
             )
@@ -196,7 +217,154 @@ fun NotificationsScreen(navController: NavController) {
                         avatarResId = n.avatarRes,
                         thumbnailResId = n.thumbnailRes,
                         onClick = {
-                            // TODO: 클릭 시 읽음 처리/이동 등
+                            // 알림 확인 상태 저장
+                            if (!n.isRead) {
+                                readNotificationIds = readNotificationIds + n.id
+                                SharedReportData.saveNotificationReadState(context, n.id, true)
+                            }
+                            
+                            // 피드백 또는 좋아요 알림인 경우 해당 제보로 이동
+                            when (val content = n.content) {
+                                is NotificationContent.Feedback -> {
+                                    // Home 화면으로 이동하면서 제보 ID 전달
+                                    coroutineScope.launch {
+                                        // 먼저 알림 화면을 백스택에서 제거
+                                        navController.popBackStack()
+                                        
+                                        // popBackStack 완료 대기
+                                        delay(100)
+                                        
+                                        // Home으로 이동 (마이페이지도 제거)
+                                        navController.navigate(MainTab.Home.route) {
+                                            popUpTo(navController.graph.findStartDestination().id) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                        
+                                        // navigate 완료 대기
+                                        delay(300)
+                                        
+                                        // savedStateHandle에 제보 ID 설정
+                                        try {
+                                            val entry = navController.getBackStackEntry(MainTab.Home.route)
+                                            entry.savedStateHandle.set("selected_report_id", content.reportId)
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("NotificationsScreen", "Failed to set reportId", e)
+                                            // 재시도
+                                            delay(300)
+                                            try {
+                                                val entry = navController.getBackStackEntry(MainTab.Home.route)
+                                                entry.savedStateHandle.set("selected_report_id", content.reportId)
+                                            } catch (e2: Exception) {
+                                                android.util.Log.e("NotificationsScreen", "Failed to set reportId on retry", e2)
+                                            }
+                                        }
+                                    }
+                                }
+                                is NotificationContent.Saved -> {
+                                    // Home 화면으로 이동하면서 제보 ID 전달
+                                    coroutineScope.launch {
+                                        // 먼저 알림 화면을 백스택에서 제거
+                                        navController.popBackStack()
+                                        
+                                        // popBackStack 완료 대기
+                                        delay(100)
+                                        
+                                        // Home으로 이동 (마이페이지도 제거)
+                                        navController.navigate(MainTab.Home.route) {
+                                            popUpTo(navController.graph.findStartDestination().id) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                        
+                                        // navigate 완료 대기
+                                        delay(300)
+                                        
+                                        // savedStateHandle에 제보 ID 설정
+                                        try {
+                                            val entry = navController.getBackStackEntry(MainTab.Home.route)
+                                            entry.savedStateHandle.set("selected_report_id", content.reportId)
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("NotificationsScreen", "Failed to set reportId", e)
+                                            // 재시도
+                                            delay(300)
+                                            try {
+                                                val entry = navController.getBackStackEntry(MainTab.Home.route)
+                                                entry.savedStateHandle.set("selected_report_id", content.reportId)
+                                            } catch (e2: Exception) {
+                                                android.util.Log.e("NotificationsScreen", "Failed to set reportId on retry", e2)
+                                            }
+                                        }
+                                    }
+                                }
+                                is NotificationContent.ExpiringReport -> {
+                                    // 사라질 제보 화면으로 이동
+                                    navController.navigate(ROUTE_EXPIRING_REPORT_DETAIL) {
+                                        // 알림 화면을 백스택에서 제거
+                                        popUpTo(ROUTE_NOTIFICATIONS) {
+                                            inclusive = true
+                                        }
+                                    }
+                                }
+                                is NotificationContent.BadgeAcquired -> {
+                                    // 마이페이지로 이동하면서 뱃지 정보 전달
+                                    android.util.Log.d("NotificationsScreen", "BadgeAcquired clicked: ${content.badgeName}")
+                                    coroutineScope.launch {
+                                        android.util.Log.d("NotificationsScreen", "Navigating to My page")
+                                        // 마이페이지로 이동 (알림 화면도 백스택에서 제거)
+                                        navController.navigate(MainTab.My.route) {
+                                            popUpTo(ROUTE_NOTIFICATIONS) {
+                                                inclusive = true
+                                            }
+                                            popUpTo(navController.graph.findStartDestination().id) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                        
+                                        // navigate 완료 대기
+                                        delay(500)
+                                        
+                                        android.util.Log.d("NotificationsScreen", "Trying to get backStackEntry for ${MainTab.My.route}")
+                                        // savedStateHandle에 뱃지 정보 설정
+                                        try {
+                                            val entry = navController.getBackStackEntry(MainTab.My.route)
+                                            android.util.Log.d("NotificationsScreen", "Got backStackEntry, setting badge info: ${content.badgeName}, reports: ${content.totalCompletedReports}")
+                                            entry.savedStateHandle.set("badge_name", content.badgeName)
+                                            entry.savedStateHandle.set("total_completed_reports", content.totalCompletedReports)
+                                            // 제보 타입별 통계는 예시 값 (실제로는 제보 데이터에서 가져와야 함)
+                                            entry.savedStateHandle.set("danger_count", 3)
+                                            entry.savedStateHandle.set("inconvenience_count", 2)
+                                            entry.savedStateHandle.set("discovery_count", 4)
+                                            android.util.Log.d("NotificationsScreen", "Badge info set successfully")
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("NotificationsScreen", "Failed to set badge info", e)
+                                            // 재시도
+                                            delay(500)
+                                            try {
+                                                val entry = navController.getBackStackEntry(MainTab.My.route)
+                                                android.util.Log.d("NotificationsScreen", "Retrying to set badge info: ${content.badgeName}")
+                                                entry.savedStateHandle.set("badge_name", content.badgeName)
+                                                entry.savedStateHandle.set("total_completed_reports", content.totalCompletedReports)
+                                                entry.savedStateHandle.set("danger_count", 3)
+                                                entry.savedStateHandle.set("inconvenience_count", 2)
+                                                entry.savedStateHandle.set("discovery_count", 4)
+                                                android.util.Log.d("NotificationsScreen", "Badge info set successfully on retry")
+                                            } catch (e2: Exception) {
+                                                android.util.Log.e("NotificationsScreen", "Failed to set badge info on retry", e2)
+                                            }
+                                        }
+                                    }
+                                }
+                                else -> {
+                                    // 다른 알림 타입은 기본 동작 (읽음 처리만)
+                                }
+                            }
                         },
 //                        modifier = Modifier.padding(vertical = 6.dp)
                     )

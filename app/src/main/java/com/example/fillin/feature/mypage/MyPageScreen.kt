@@ -64,6 +64,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -94,6 +95,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.compose.currentBackStackEntryAsState
+import kotlinx.coroutines.delay
 import com.example.fillin.ui.theme.FILLINTheme
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -144,17 +147,104 @@ fun MyPageScreen(
     SetStatusBarColor(color = Color.White, darkIcons = true)
 
     val state by vm.uiState.collectAsState()
-    MyPageContent(
-        uiState = state,
-        onNavigateProfileEdit = { navController.navigate(ROUTE_PROFILE_EDIT) },
-        onNavigateSettings = { navController.navigate(ROUTE_SETTINGS) },
-        onNavigateNotifications = { navController.navigate(ROUTE_NOTIFICATIONS) },
-        onNavigateMyReports = { navController.navigate(ROUTE_MY_REPORTS) },
-        onNavigateExpiringDetail = { navController.navigate(ROUTE_EXPIRING_REPORT_DETAIL) },
-        onHideBottomBar = onHideBottomBar,
-        onShowBottomBar = onShowBottomBar
-    )
+    
+    // 뱃지 획득 팝업 표시 여부 및 뱃지 정보
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val savedStateHandle = backStackEntry?.savedStateHandle
+    var showBadgePopup by remember { mutableStateOf(false) }
+    var badgePopupData by remember { mutableStateOf<BadgePopupData?>(null) }
+    var lastProcessedBadgeName by remember(backStackEntry) { mutableStateOf<String?>(null) }
+    
+    // savedStateHandle에서 뱃지 정보 확인
+    LaunchedEffect(backStackEntry) {
+        val entry = backStackEntry ?: return@LaunchedEffect
+        val handle = entry.savedStateHandle
+        
+        // backStackEntry가 변경되면 lastProcessedBadgeName 초기화
+        lastProcessedBadgeName = null
+        
+        android.util.Log.d("MyPageScreen", "LaunchedEffect started, checking for badge info")
+        
+        while (true) {
+            val badgeName = handle.get<String>("badge_name")
+            val totalCompletedReports = handle.get<Int>("total_completed_reports")
+            val dangerCount = handle.get<Int>("danger_count") ?: 0
+            val inconvenienceCount = handle.get<Int>("inconvenience_count") ?: 0
+            val discoveryCount = handle.get<Int>("discovery_count") ?: 0
+            
+            // 디버깅: savedStateHandle의 모든 키 확인
+            if (badgeName != null || totalCompletedReports != null) {
+                android.util.Log.d("MyPageScreen", "Found badge info - name: $badgeName, reports: $totalCompletedReports, lastProcessed: $lastProcessedBadgeName")
+            }
+            
+            // 뱃지 정보가 있고, 이전에 처리하지 않은 경우에만 팝업 표시
+            if (badgeName != null && totalCompletedReports != null && badgeName != lastProcessedBadgeName) {
+                android.util.Log.d("MyPageScreen", "Badge detected: $badgeName, reports: $totalCompletedReports")
+                // 뱃지 정보가 있으면 팝업 표시
+                badgePopupData = BadgePopupData(
+                    badgeName = badgeName,
+                    totalCompletedReports = totalCompletedReports,
+                    dangerCount = dangerCount,
+                    inconvenienceCount = inconvenienceCount,
+                    discoveryCount = discoveryCount
+                )
+                showBadgePopup = true
+                lastProcessedBadgeName = badgeName
+                // savedStateHandle에서 제거
+                handle.remove<String>("badge_name")
+                handle.remove<Int>("total_completed_reports")
+                handle.remove<Int>("danger_count")
+                handle.remove<Int>("inconvenience_count")
+                handle.remove<Int>("discovery_count")
+                android.util.Log.d("MyPageScreen", "Badge popup shown and data removed from savedStateHandle")
+            }
+            
+            delay(50) // 50ms마다 체크
+        }
+    }
+    
+    Box(modifier = Modifier.fillMaxSize()) {
+        MyPageContent(
+            uiState = state,
+            onNavigateProfileEdit = { navController.navigate(ROUTE_PROFILE_EDIT) },
+            onNavigateSettings = { navController.navigate(ROUTE_SETTINGS) },
+            onNavigateNotifications = { navController.navigate(ROUTE_NOTIFICATIONS) },
+            onNavigateMyReports = { navController.navigate(ROUTE_MY_REPORTS) },
+            onNavigateExpiringDetail = { navController.navigate(ROUTE_EXPIRING_REPORT_DETAIL) },
+            onHideBottomBar = onHideBottomBar,
+            onShowBottomBar = onShowBottomBar
+        )
+        
+        // 뱃지 획득 팝업 (uiState와 관계없이 표시)
+        val popupData = badgePopupData
+        if (showBadgePopup && popupData != null) {
+            // 팝업이 표시될 때 네비게이션 바 숨김
+            LaunchedEffect(Unit) {
+                onHideBottomBar()
+            }
+            
+            BadgeAcquisitionPopup(
+                badgeName = popupData.badgeName,
+                totalCompletedReports = popupData.totalCompletedReports,
+                dangerCount = popupData.dangerCount,
+                inconvenienceCount = popupData.inconvenienceCount,
+                discoveryCount = popupData.discoveryCount,
+                onDismiss = {
+                    showBadgePopup = false
+                    onShowBottomBar()
+                }
+            )
+        }
+    }
 }
+
+private data class BadgePopupData(
+    val badgeName: String,
+    val totalCompletedReports: Int,
+    val dangerCount: Int,
+    val inconvenienceCount: Int,
+    val discoveryCount: Int
+)
 
 @Composable
 private fun MyPageContent(
@@ -521,7 +611,7 @@ private fun MyPageSuccess(
                             title = r.title,
                             meta = r.meta,
                             imageResId = r.imageResId,
-                            badgeCount = 5
+                            badgeCount = r.viewCount
                         )
                     }
                     Spacer(Modifier.width(4.dp))
@@ -610,6 +700,15 @@ private fun SavedReportCard(
     imageResId: Int?,
     badgeCount: Int
 ) {
+    // 주소에서 시/도/구 제거 및 위치 설명 제거 (실제 주소만 표시)
+    val addressWithoutCityDistrict = remember(title) {
+        // 1. 정규식으로 "서울시 마포구", "서울특별시 마포구", "경기도 성남시" 같은 패턴 제거
+        var address = title.replace(Regex("^[가-힣]+(?:시|도)\\s+[가-힣]+(?:구|시)\\s*"), "")
+        // 2. "홍대입구역 1번 출구 앞", "합정역 2번 출구 앞" 같은 위치 설명 제거
+        address = address.replace(Regex("\\s*[가-힣]*역\\s*\\d+번\\s*출구\\s*앞"), "").trim()
+        address
+    }
+    
     val shape = RoundedCornerShape(14.dp)
     Surface(
         modifier = modifier
@@ -667,7 +766,7 @@ private fun SavedReportCard(
                 color = Color.Transparent
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 9.dp),
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Image(
@@ -691,7 +790,7 @@ private fun SavedReportCard(
                     .padding(10.dp)
             ) {
                 Text(
-                    text = title,
+                    text = addressWithoutCityDistrict,
                     color = Color.White,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 14.sp,
@@ -941,9 +1040,9 @@ private fun MyPageScreenPreview() {
             discoveryCount = 1
         ),
         reports = listOf(
-            MyReportCard(1, "행복길 2129-11", "가는길 255m"),
-            MyReportCard(2, "행복길 2129-11", "가는길 255m"),
-            MyReportCard(3, "행복길 2129-11", "가는길 255m")        )
+            MyReportCard(1, "행복길 2129-11", "가는길 255m", null, 5),
+            MyReportCard(2, "행복길 2129-11", "가는길 255m", null, 8),
+            MyReportCard(3, "행복길 2129-11", "가는길 255m", null, 12)        )
     )
 
     FILLINTheme {
@@ -1644,3 +1743,172 @@ private fun BadgeLevelTooltip(
     }
 }
 
+@Composable
+private fun BadgeAcquisitionPopup(
+    badgeName: String,
+    totalCompletedReports: Int,
+    dangerCount: Int,
+    inconvenienceCount: Int,
+    discoveryCount: Int,
+    onDismiss: () -> Unit
+) {
+    // 배경 오버레이
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.5f))
+            .clickable(onClick = onDismiss),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // 팝업 내용
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clickable(enabled = false) { },
+                shape = RoundedCornerShape(20.dp),
+                color = Color.White,
+                shadowElevation = 8.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // 프로필 이미지
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFE5E7EB)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_user_img),
+                            contentDescription = "프로필 이미지",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                    
+                    Spacer(Modifier.height(16.dp))
+                    
+                    // 뱃지 이름
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF4595E5),
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    ) {
+                        Text(
+                            text = badgeName,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
+                    
+                    Spacer(Modifier.height(12.dp))
+                    
+                    // 뱃지 획득 메시지
+                    Text(
+                        text = "${badgeName} 뱃지를 획득했어요!",
+                        color = Color(0xFF4595E5),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp
+                    )
+                    
+                    Spacer(Modifier.height(8.dp))
+                    
+                    // 완료 제보 수
+                    Text(
+                        text = "총 ${totalCompletedReports}개의 제보를 완료했어요",
+                        color = Color(0xFF6B7280),
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp
+                    )
+                    
+                    Spacer(Modifier.height(24.dp))
+                    
+                    // 제보 타입별 통계
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "위험",
+                                color = Color(0xFF6B7280),
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "$dangerCount",
+                                color = Color(0xFFFF6060),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp
+                            )
+                        }
+                        
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "불편",
+                                color = Color(0xFF6B7280),
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "$inconvenienceCount",
+                                color = Color(0xFFF5C72F),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp
+                            )
+                        }
+                        
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "발견",
+                                color = Color(0xFF6B7280),
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "$discoveryCount",
+                                color = Color(0xFF29C488),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp
+                            )
+                        }
+                    }
+                }
+            }
+            
+            Spacer(Modifier.height(16.dp))
+            
+            // 닫기 버튼
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(Color.White)
+                    .clickable(onClick = onDismiss),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Close,
+                    contentDescription = "닫기",
+                    tint = Color(0xFF555659),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+    }
+}
