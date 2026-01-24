@@ -62,6 +62,7 @@ import com.example.fillin.ui.components.AiLoadingOverlay
 import com.naver.maps.map.CameraPosition
 import com.naver.maps.map.CameraUpdate
 import com.naver.maps.map.CameraAnimation
+import com.example.fillin.data.AppPreferences
 import com.example.fillin.data.ReportStatusManager
 import com.example.fillin.data.SampleReportData
 import com.example.fillin.data.SharedReportData
@@ -118,6 +119,11 @@ fun HomeScreen(
     // 상태바를 밝은 배경에 어두운 아이콘으로 설정
     SetStatusBarColor(color = Color.White, darkIcons = true)
     val context = LocalContext.current
+    
+    // 앱 설정에서 현재 사용자 닉네임 가져오기
+    val appPreferences = remember { AppPreferences(context) }
+    val currentUserNickname by appPreferences.nicknameFlow.collectAsState()
+    
     val presentLocation = remember { PresentLocation(context) }
     var naverMap: NaverMap? by remember { mutableStateOf(null) }
     
@@ -1184,8 +1190,8 @@ fun HomeScreen(
                 updatedSampleReports.find { it.report.id == reportWithLocation.report.id } 
                     ?: reportWithLocation
             }
-            val reportCardUi = remember(currentReportWithLocation, currentUserLocation) { 
-                convertToReportCardUi(currentReportWithLocation, currentUserLocation) 
+            val reportCardUi = remember(currentReportWithLocation, currentUserLocation, currentUserNickname) { 
+                convertToReportCardUi(currentReportWithLocation, currentUserLocation, currentUserNickname) 
             }
             // 배경 오버레이 (전체 화면을 덮어 네비게이션 바까지 어둡게 처리)
             Box(
@@ -1254,7 +1260,8 @@ fun HomeScreen(
 // ReportWithLocation을 ReportCardUi로 변환하는 헬퍼 함수
 private fun convertToReportCardUi(
     reportWithLocation: ReportWithLocation,
-    currentUserLocation: android.location.Location?
+    currentUserLocation: android.location.Location?,
+    currentUserNickname: String = "사용자"
 ): ReportCardUi {
     // 두 좌표 간 거리 계산 (미터 단위)
     fun calculateDistanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
@@ -1318,8 +1325,8 @@ private fun convertToReportCardUi(
         views = report.viewCount,
         typeLabel = typeLabel,
         typeColor = typeColor,
-        userName = "사용자", // TODO: 실제 사용자 정보로 교체
-        userBadge = "루키", // TODO: 실제 사용자 뱃지로 교체
+        userName = if (report.isUserOwned) currentUserNickname else (report.reporterInfo?.nickname ?: "사용자"),
+        userBadge = if (report.isUserOwned) SharedReportData.getBadgeName() else "루키", // 본인 제보면 현재 뱃지, 아니면 기본 뱃지
         title = title,
         createdLabel = createdLabel,
         address = addressWithoutCityDistrict,

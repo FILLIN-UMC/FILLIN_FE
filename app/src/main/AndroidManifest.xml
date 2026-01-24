@@ -57,6 +57,22 @@
 
         </activity>
 
+        <!-- ✅ 이미지 크롭용 FileProvider -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- ✅ 이미지 크롭 액티비티 -->
+        <activity
+            android:name="com.canhub.cropper.CropImageActivity"
+            android:theme="@style/Theme.AppCompat.Light.DarkActionBar" />
+
         <!-- ✅ 카카오 로그인 Redirect URI 인가코드 처리 -->
         <activity
             android:name="com.kakao.sdk.auth.AuthCodeHandlerActivity"
