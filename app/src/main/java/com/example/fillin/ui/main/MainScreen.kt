@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -33,6 +35,7 @@ import com.example.fillin.feature.report.ReportOptionMenu
 import com.example.fillin.ui.components.BottomNavBar
 import com.example.fillin.ui.components.TabSpec
 import com.example.fillin.ui.navigation.MainNavGraph
+import com.example.fillin.ui.main.MainTab
 import com.example.fillin.data.AppPreferences
 import kotlinx.coroutines.delay
 
@@ -131,7 +134,7 @@ fun MainScreen(
                     }
                 }
             )
-
+            
             // Overlay BottomNavBar on MyPage so dragging it down reveals the content behind it.
             if (showBottomBar && isMyPage) {
                 Box(

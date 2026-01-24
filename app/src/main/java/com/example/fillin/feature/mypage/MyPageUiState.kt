@@ -13,7 +13,8 @@ data class MyReportCard(
     val id: Long,
     val title: String,
     val meta: String,
-    val imageResId: Int? = null  // 제보 이미지 리소스 ID
+    val imageResId: Int? = null,  // 제보 이미지 리소스 ID
+    val viewCount: Int = 0  // 조회수
 )
 
 sealed interface MyPageUiState {

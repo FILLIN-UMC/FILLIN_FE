@@ -2,7 +2,9 @@ package com.example.fillin.ui.map
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.location.LocationManager
 import android.os.Looper
+import android.provider.Settings
 import com.google.android.gms.location.*
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.naver.maps.geometry.LatLng
@@ -19,9 +21,21 @@ class PresentLocation(private val context: Context) {
     // 위치 업데이트 콜백
     private var locationCallback: LocationCallback? = null
 
+    // 위치 서비스가 활성화되어 있는지 확인
+    private fun isLocationEnabled(): Boolean {
+        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+               locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+    }
+    
     // 현재 위치를 찾아서 지도를 이동시키는 핵심 함수
     @SuppressLint("MissingPermission")
     fun moveMapToCurrentLocation(naverMap: NaverMap) {
+        // 위치 서비스가 활성화되어 있지 않으면 아무 동작도 하지 않음
+        if (!isLocationEnabled()) {
+            return
+        }
+        
         // 먼저 캐시된 위치를 확인
         fusedLocationClient.lastLocation.addOnSuccessListener { location ->
             location?.let {

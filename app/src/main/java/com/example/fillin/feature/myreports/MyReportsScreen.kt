@@ -27,19 +27,25 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
-import com.example.fillin.ui.theme.FILLINTheme
 import com.example.fillin.R
+import com.example.fillin.data.ReportStatusManager
+import com.example.fillin.data.SharedReportData
+import com.example.fillin.domain.model.ReportStatus
+import com.example.fillin.domain.model.ReportType
+import com.example.fillin.feature.home.ReportWithLocation
+import com.example.fillin.ui.theme.FILLINTheme
 
 private enum class MyReportsTab { REGISTERED, EXPIRED }
 
 data class MyReportUi(
-    val id: Int,
+    val id: Long,
     val badgeText: String, // "발견" / "불편" 등
     val badgeBg: Color,
     val viewCount: Int, // 좌측 상단 조회수
     val titleTop: String,  // "행복길 122-11"
     val titleBottom: String, // "가는길 255m"
-    val placeName: String // 카드 아래 "붕어빵 가게"
+    val placeName: String, // 카드 아래 "붕어빵 가게"
+    val imageResId: Int? = null // 제보 이미지 리소스 ID
 )
 
 @Composable
@@ -48,30 +54,69 @@ fun MyReportsScreen(navController: NavController) {
     var editMode by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<MyReportUi?>(null) }
 
-    // 예시 데이터(이미지처럼 2개만)
-    val registered = remember {
-        mutableStateListOf(
-            MyReportUi(
-                id = 1,
-                badgeText = "발견",
-                badgeBg = Color(0xFF29C488),
-                viewCount = 5,
-                titleTop = "행복길 122-11",
-                titleBottom = "가는길 255m",
-                placeName = "붕어빵 가게"
-            ),
-            MyReportUi(
-                id = 2,
-                badgeText = "불편",
-                badgeBg = Color(0xFFF5C72F),
-                viewCount = 5,
-                titleTop = "행복길 122-11",
-                titleBottom = "가는길 255m",
-                placeName = "붕어빵 가게"
-            )
+    // SharedReportData에서 제보 데이터 가져오기 및 상태 업데이트
+    val userReports = remember {
+        val reports = SharedReportData.getUserReports()
+        // 제보 상태 업데이트 (피드백 조건에 따라 EXPIRING/EXPIRED 상태로 변경)
+        reports.map { reportWithLocation ->
+            val updatedReport = ReportStatusManager.updateReportStatus(reportWithLocation.report)
+            reportWithLocation.copy(report = updatedReport)
+        }
+    }
+    
+    // ReportWithLocation을 MyReportUi로 변환하는 헬퍼 함수
+    fun convertToMyReportUi(reportWithLocation: ReportWithLocation): MyReportUi {
+        val report = reportWithLocation.report
+        
+        // 타입에 따른 배지 텍스트와 색상
+        val (badgeText, badgeBg) = when (report.type) {
+            ReportType.DANGER -> "위험" to Color(0xFFFF6060)
+            ReportType.INCONVENIENCE -> "불편" to Color(0xFFF5C72F)
+            ReportType.DISCOVERY -> "발견" to Color(0xFF29C488)
+        }
+        
+        // 주소에서 시/도/구 제거 및 위치 설명 제거 (실제 주소만 표시)
+        var addressWithoutCityDistrict = report.title.replace(
+            Regex("^[가-힣]+(?:시|도)\\s+[가-힣]+(?:구|시)\\s*"), 
+            ""
+        )
+        // "홍대입구역 1번 출구 앞", "합정역 2번 출구 앞" 같은 위치 설명 제거
+        addressWithoutCityDistrict = addressWithoutCityDistrict.replace(
+            Regex("\\s*[가-힣]*역\\s*\\d+번\\s*출구\\s*앞"), 
+            ""
+        ).trim()
+        
+        return MyReportUi(
+            id = report.id,
+            badgeText = badgeText,
+            badgeBg = badgeBg,
+            viewCount = report.viewCount,
+            titleTop = addressWithoutCityDistrict,
+            titleBottom = report.meta,
+            placeName = "", // 현재 데이터에 장소명이 없으므로 빈 문자열
+            imageResId = report.imageResId
         )
     }
-    val expired = remember { mutableStateListOf<MyReportUi>() }
+    
+    // 등록된 제보 (ACTIVE 상태)
+    val registered = remember(userReports) {
+        mutableStateListOf(
+            *userReports
+                .filter { it.report.status == ReportStatus.ACTIVE }
+                .map { convertToMyReportUi(it) }
+                .toTypedArray()
+        )
+    }
+    
+    // 사라진 제보 (EXPIRED 상태)
+    val expired = remember(userReports) {
+        mutableStateListOf(
+            *userReports
+                .filter { it.report.status == ReportStatus.EXPIRED }
+                .map { convertToMyReportUi(it) }
+                .toTypedArray()
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -278,7 +323,7 @@ private fun MyReportGridItem(
         ) {
             Box(Modifier.fillMaxSize()) {
                 Image(
-                    painter = painterResource(id = R.drawable.ic_report_img),
+                    painter = painterResource(id = item.imageResId ?: R.drawable.ic_report_img),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
@@ -406,13 +451,16 @@ private fun MyReportGridItem(
 
         Spacer(Modifier.height(8.dp))
 
-        Text(
-            text = item.placeName,
-            color = Color(0xFF252526),
-            fontWeight = FontWeight.SemiBold,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(horizontal = 6.dp)
-        )
+        // placeName이 있을 때만 표시
+        if (item.placeName.isNotEmpty()) {
+            Text(
+                text = item.placeName,
+                color = Color(0xFF252526),
+                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(horizontal = 6.dp)
+            )
+        }
     }
 }
 
