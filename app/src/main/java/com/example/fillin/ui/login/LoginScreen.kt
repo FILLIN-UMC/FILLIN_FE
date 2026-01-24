@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape // ✅ 완전한 원형을 위해 추가
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -16,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.layout.ContentScale // ✅ 이미지 비율 유지를 위해 추가
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextDecoration
@@ -40,7 +42,6 @@ fun LoginScreen(
         factory = AuthViewModelFactory(appPreferences)
     )
 
-    // ✅ ViewModel 네비게이션 이벤트 구독
     LaunchedEffect(Unit) {
         authViewModel.navEvents.collectLatest { event ->
             when (event) {
@@ -76,12 +77,13 @@ fun LoginScreen(
         ) {
             Spacer(modifier = Modifier.weight(1f))
 
-            // ✅ 로고 이미지: colorFilter를 사용하여 하얀색으로 변경
+            // ✅ 로고: 색상을 쨍한 하얀색으로 입히고 비율을 맞춤
             Image(
                 painter = painterResource(R.drawable.ic_fillin_logo),
                 contentDescription = "FILLIN Logo",
                 modifier = Modifier.size(180.dp),
-                colorFilter = ColorFilter.tint(Color.White)
+                colorFilter = ColorFilter.tint(Color.White),
+                contentScale = ContentScale.Fit // 이미지 왜곡 방지
             )
 
             Spacer(modifier = Modifier.weight(1f))
@@ -90,7 +92,6 @@ fun LoginScreen(
                 horizontalArrangement = Arrangement.spacedBy(28.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // ✅ 카카오 버튼
                 IconCircleButton(
                     iconRes = R.drawable.ic_kakao,
                     onClick = {
@@ -102,7 +103,6 @@ fun LoginScreen(
                     }
                 )
 
-                // ✅ 구글 버튼
                 IconCircleButton(
                     iconRes = R.drawable.ic_google,
                     onClick = {
@@ -122,12 +122,12 @@ fun LoginScreen(
 
             Text(
                 text = "로그인 안하고 구경할래요",
-                color = Color.White, // 배경이 블루 그래디언트라면 텍스트도 하얀색이 잘 보일 거예요
+                color = Color.White.copy(alpha = 0.8f), // 기획안처럼 약간 투명한 하얀색
                 style = MaterialTheme.typography.bodyMedium.copy(
                     textDecoration = TextDecoration.Underline
                 ),
                 modifier = Modifier.clickable {
-                    // 필요 시 둘러보기 라우트로 이동
+                    // 둘러보기 로직
                 }
             )
 
@@ -136,7 +136,6 @@ fun LoginScreen(
     }
 }
 
-/** Compose context에서 Activity 찾기 */
 private fun Context.findActivity(): Activity? {
     var ctx = this
     while (ctx is ContextWrapper) {
@@ -152,17 +151,19 @@ private fun IconCircleButton(
     onClick: () -> Unit
 ) {
     Surface(
-        shape = MaterialTheme.shapes.extraLarge,
-        tonalElevation = 2.dp,
-        shadowElevation = 4.dp,
-        modifier = Modifier.size(72.dp),
+        // ✅ shape를 CircleShape로 변경하여 완전한 원형 버튼으로 수정
+        shape = CircleShape, 
+        color = Color.White, // 배경색 강제 지정
+        tonalElevation = 0.dp,
+        shadowElevation = 2.dp, // 기획안은 그림자가 아주 연함
+        modifier = Modifier.size(64.dp), // 기획안 비율에 맞춰 소폭 조정
         onClick = onClick
     ) {
         Box(contentAlignment = Alignment.Center) {
             Image(
                 painter = painterResource(iconRes),
                 contentDescription = null,
-                modifier = Modifier.size(34.dp)
+                modifier = Modifier.size(30.dp) // 아이콘 크기 최적화
             )
         }
     }
