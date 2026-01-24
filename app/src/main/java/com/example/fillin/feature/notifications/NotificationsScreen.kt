@@ -72,8 +72,12 @@ fun NotificationsScreen(navController: NavController) {
         mutableStateOf(SharedReportData.loadNotificationReadStates(context))
     }
 
+    // 사용자 제보 통계 가져오기
+    val reportStats = remember { SharedReportData.getReportStats() }
+    val badgeName = remember { SharedReportData.getBadgeName() }
+    
     // 5가지 종류(피드백/저장/사라질제보/뱃지 획득/시스템) 예시 알림
-    val sampleNotifications = remember(now, readNotificationIds) {
+    val sampleNotifications = remember(now, readNotificationIds, reportStats, badgeName) {
         listOf(
             NotificationUiModel(
                 id = "sample_feedback",
@@ -112,8 +116,8 @@ fun NotificationsScreen(navController: NavController) {
             NotificationUiModel(
                 id = "sample_badge",
                 content = NotificationContent.BadgeAcquired(
-                    badgeName = "루키",
-                    totalCompletedReports = 9
+                    badgeName = badgeName,
+                    totalCompletedReports = reportStats.totalCount
                 ),
                 createdAt = now.minus(1, ChronoUnit.DAYS),
                 isRead = readNotificationIds.contains("sample_badge"),
@@ -337,10 +341,10 @@ fun NotificationsScreen(navController: NavController) {
                                             android.util.Log.d("NotificationsScreen", "Got backStackEntry, setting badge info: ${content.badgeName}, reports: ${content.totalCompletedReports}")
                                             entry.savedStateHandle.set("badge_name", content.badgeName)
                                             entry.savedStateHandle.set("total_completed_reports", content.totalCompletedReports)
-                                            // 제보 타입별 통계는 예시 값 (실제로는 제보 데이터에서 가져와야 함)
-                                            entry.savedStateHandle.set("danger_count", 3)
-                                            entry.savedStateHandle.set("inconvenience_count", 2)
-                                            entry.savedStateHandle.set("discovery_count", 4)
+                                            // 제보 타입별 통계 (실제 데이터 사용)
+                                            entry.savedStateHandle.set("danger_count", reportStats.dangerCount)
+                                            entry.savedStateHandle.set("inconvenience_count", reportStats.inconvenienceCount)
+                                            entry.savedStateHandle.set("discovery_count", reportStats.discoveryCount)
                                             android.util.Log.d("NotificationsScreen", "Badge info set successfully")
                                         } catch (e: Exception) {
                                             android.util.Log.e("NotificationsScreen", "Failed to set badge info", e)
@@ -351,9 +355,9 @@ fun NotificationsScreen(navController: NavController) {
                                                 android.util.Log.d("NotificationsScreen", "Retrying to set badge info: ${content.badgeName}")
                                                 entry.savedStateHandle.set("badge_name", content.badgeName)
                                                 entry.savedStateHandle.set("total_completed_reports", content.totalCompletedReports)
-                                                entry.savedStateHandle.set("danger_count", 3)
-                                                entry.savedStateHandle.set("inconvenience_count", 2)
-                                                entry.savedStateHandle.set("discovery_count", 4)
+                                                entry.savedStateHandle.set("danger_count", reportStats.dangerCount)
+                                                entry.savedStateHandle.set("inconvenience_count", reportStats.inconvenienceCount)
+                                                entry.savedStateHandle.set("discovery_count", reportStats.discoveryCount)
                                                 android.util.Log.d("NotificationsScreen", "Badge info set successfully on retry")
                                             } catch (e2: Exception) {
                                                 android.util.Log.e("NotificationsScreen", "Failed to set badge info on retry", e2)

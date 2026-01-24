@@ -1146,8 +1146,10 @@ fun HomeScreen(
             )
         }
         
-        // 상단 알림 배너 (제보 카드가 표시되어도 그대로 표시)
-        if (showNotificationBanner && currentReport != null) {
+        // 상단 알림 배너 (제보 카드가 표시되어도 그대로 표시, 단 제보 흐름 진행 중에는 숨김)
+        val isReportFlowActive = showCamera || isRealtimeReportScreenVisible || isPastReportScreenVisible || 
+            isPastReportPhotoStage || isPastReportLocationMode || isMapPickingMode
+        if (showNotificationBanner && currentReport != null && !isReportFlowActive) {
             NotificationBanner(
                 modifier = Modifier
                     .align(Alignment.TopCenter)

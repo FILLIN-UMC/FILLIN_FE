@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.example.fillin.feature.home.ReportWithLocation
 import com.example.fillin.domain.model.Report
+import com.example.fillin.domain.model.ReporterInfo
 
 /**
  * 앱 전체에서 공유되는 제보 데이터를 관리하는 싱글톤 객체
@@ -28,10 +29,17 @@ object SharedReportData {
     
     /**
      * 사용자가 작성한 제보만 필터링하여 반환합니다.
-     * 현재는 모든 제보를 사용자의 제보로 간주합니다.
+     * isUserOwned == true인 제보만 반환합니다.
      */
     fun getUserReports(): List<ReportWithLocation> {
-        return reports
+        return reports.filter { it.report.isUserOwned }
+    }
+    
+    /**
+     * 현재 로그인된 사용자 정보를 반환합니다.
+     */
+    fun getCurrentUser(): ReporterInfo {
+        return SampleReportData.currentUser
     }
     
     /**
@@ -159,6 +167,47 @@ object SharedReportData {
     }
     
     /**
+     * 사용자의 총 제보 갯수를 반환합니다.
+     * isUserOwned == true인 제보만 카운트합니다.
+     */
+    fun getTotalReportCount(): Int {
+        return reports.count { it.report.isUserOwned }
+    }
+    
+    /**
+     * 제보 갯수에 따른 뱃지 이름을 반환합니다.
+     * - 루키: 0~9개
+     * - 베테랑: 10~29개
+     * - 마스터: 30개 이상
+     * isUserOwned == true인 제보만 카운트합니다.
+     */
+    fun getBadgeName(): String {
+        val totalReports = reports.count { it.report.isUserOwned }
+        return when {
+            totalReports >= 30 -> "마스터"
+            totalReports >= 10 -> "베테랑"
+            else -> "루키"
+        }
+    }
+    
+    /**
+     * 제보 타입별 통계를 반환합니다.
+     * isUserOwned == true인 제보만 카운트합니다.
+     */
+    fun getReportStats(): ReportStats {
+        val userReports = reports.filter { it.report.isUserOwned }
+        val dangerCount = userReports.count { it.report.type == com.example.fillin.domain.model.ReportType.DANGER }
+        val inconvenienceCount = userReports.count { it.report.type == com.example.fillin.domain.model.ReportType.INCONVENIENCE }
+        val discoveryCount = userReports.count { it.report.type == com.example.fillin.domain.model.ReportType.DISCOVERY }
+        return ReportStats(
+            totalCount = userReports.size,
+            dangerCount = dangerCount,
+            inconvenienceCount = inconvenienceCount,
+            discoveryCount = discoveryCount
+        )
+    }
+    
+    /**
      * 알림 확인 상태를 저장하는 SharedPreferences 이름
      */
     private const val NOTIFICATION_PREFS_NAME = "fillin_notifications"
@@ -182,3 +231,13 @@ object SharedReportData {
         prefs.edit().putBoolean(notificationId, isRead).apply()
     }
 }
+
+/**
+ * 제보 타입별 통계 데이터 클래스
+ */
+data class ReportStats(
+    val totalCount: Int,
+    val dangerCount: Int,
+    val inconvenienceCount: Int,
+    val discoveryCount: Int
+)
