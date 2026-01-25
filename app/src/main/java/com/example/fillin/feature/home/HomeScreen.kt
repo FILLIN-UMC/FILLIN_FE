@@ -1258,9 +1258,8 @@ fun HomeScreen(
                     .align(Alignment.TopCenter)
                     .statusBarsPadding()
                     .padding(top = 16.dp)
-                    .fillMaxWidth()
                     .padding(horizontal = 32.dp)
-                    .aspectRatio(348f / 48f),
+                    .wrapContentWidth(),
                 report = currentReport.report,
                 onDismiss = { showNotificationBanner = false }
             )
@@ -1468,10 +1467,14 @@ private fun NotificationBanner(
         ReportType.DISCOVERY -> Color(0xFF29C488) // 발견 제보
     }
     
-    // 주소에서 시/도/구 제거 (시/도/구 단위보다 작은 단위만 표시)
+    // 주소에서 시/도/구 제거 및 실제 주소만 추출 (역, 출구, 앞 등의 설명 제거)
     val addressWithoutCityDistrict = remember(report.title) {
-        // 정규식으로 "서울시 마포구", "서울특별시 마포구", "경기도 성남시" 같은 패턴 제거
-        report.title.replace(Regex("^[가-힣]+(?:시|도)\\s+[가-힣]+(?:구|시)\\s*"), "")
+        var address = report.title
+        // 1. 시/도/구 제거
+        address = address.replace(Regex("^[가-힣]+(?:시|도)\\s+[가-힣]+(?:구|시)\\s*"), "")
+        // 2. 역, 출구, 앞 등의 설명 부분 제거
+        address = address.replace(Regex("\\s*[가-힣]*역\\s*\\d+번\\s*출구\\s*앞.*"), "")
+        address.trim()
     }
     
     Surface(
@@ -1480,50 +1483,46 @@ private fun NotificationBanner(
         color = Color.White,
         shadowElevation = 4.dp
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .fillMaxSize()
+                .wrapContentWidth()
+                .height(48.dp)
                 .padding(horizontal = 16.dp),
-            contentAlignment = Alignment.Center
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Start
         ) {
+            // 카테고리 컬러 점
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .clip(CircleShape)
+                    .background(categoryColor)
+            )
+            
+            Spacer(Modifier.width(8.dp))
+            
+            // 주소와 제보 내용(meta) 표시
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+                modifier = Modifier.wrapContentWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // 카테고리 컬러 점
-                Box(
-                    modifier = Modifier
-                        .size(12.dp)
-                        .clip(CircleShape)
-                        .background(categoryColor)
+                // 실제 주소 표시
+                Text(
+                    text = addressWithoutCityDistrict,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+                    color = Color(0xFF555659), // 회색 텍스트
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
                 
-                Spacer(Modifier.width(8.dp))
-                
-                // 주소와 meta를 분리하여 표시
-                Row(
-                    modifier = Modifier.weight(1f, fill = false),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // 주소 부분 (ellipsis 적용)
-                    Text(
-                        text = addressWithoutCityDistrict,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
-                        color = Color(0xFF555659), // 회색 텍스트
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    
-                    // meta 부분 (항상 표시)
-                    Text(
-                        text = " ${report.meta}",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
-                        color = Color(0xFF555659), // 회색 텍스트
-                        maxLines = 1
-                    )
-                }
+                // 제보 내용(meta) 표시
+                Text(
+                    text = " ${report.meta}",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+                    color = Color(0xFF555659), // 회색 텍스트
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -1726,9 +1725,8 @@ private fun HomeScreenPreview() {
                     .align(Alignment.TopCenter)
                     .statusBarsPadding()
                     .padding(top = 16.dp)
-                    .fillMaxWidth()
                     .padding(horizontal = 32.dp)
-                    .aspectRatio(348f / 48f),
+                    .wrapContentWidth(),
                 report = Report(
                     id = 1,
                     title = "서울시 마포구 양화로 188 홍대입구역 1번 출구 앞",

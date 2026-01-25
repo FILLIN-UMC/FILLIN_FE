@@ -24,6 +24,7 @@ sealed class AuthNavEvent {
     data object GoTerms : AuthNavEvent()
     data object GoPermissions : AuthNavEvent()
     data object GoAfterLoginSplash : AuthNavEvent()
+    data object Logout : AuthNavEvent()
     data class ShowError(val message: String) : AuthNavEvent()
 }
 
@@ -208,6 +209,37 @@ class AuthViewModel(
         } catch (e: NoCredentialException) {
             // 2) 없으면 전체 계정 대상으로 다시
             request(filterByAuthorized = false)
+        }
+    }
+
+    /** 로그아웃 처리 */
+    fun logout() {
+        viewModelScope.launch {
+            try {
+                // 카카오 로그아웃 시도
+                UserApiClient.instance.logout { error ->
+                    if (error != null) {
+                        Log.e("LOGOUT", "Kakao logout failed", error)
+                    } else {
+                        Log.d("LOGOUT", "Kakao logout success")
+                    }
+                }
+                
+                // 로그인 상태 초기화
+                appPreferences.setLoggedIn(false)
+                
+                // 모든 사용자 데이터 초기화
+                appPreferences.clearAll()
+                
+                // 로그인 화면으로 이동
+                _navEvents.send(AuthNavEvent.Logout)
+            } catch (e: Exception) {
+                Log.e("LOGOUT", "Logout error", e)
+                // 에러가 발생해도 로그인 상태는 초기화
+                appPreferences.setLoggedIn(false)
+                appPreferences.clearAll()
+                _navEvents.send(AuthNavEvent.Logout)
+            }
         }
     }
 

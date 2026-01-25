@@ -92,6 +92,7 @@ class AppPreferences(context: Context) {
         _isTermsAcceptedFlow.value = false
         _isPermissionGrantedFlow.value = false
         _nicknameFlow.value = "방태림"
+        _profileImageUriFlow.value = null
     }
 
     suspend fun setLocationHistoryConsent(value: Boolean) {

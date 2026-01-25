@@ -2,6 +2,7 @@ package com.example.fillin.feature.mypage
 
 import android.R.attr.contentDescription
 import android.app.Activity
+import android.content.Context
 import android.net.Uri
 import android.graphics.Color as AndroidColor
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.widthIn
@@ -104,12 +106,24 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import kotlinx.coroutines.delay
 import com.example.fillin.ui.theme.FILLINTheme
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.example.fillin.R
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import com.example.fillin.data.AppPreferences
+import com.example.fillin.ui.login.AuthViewModel
+import com.example.fillin.ui.login.AuthViewModelFactory
+import com.example.fillin.ui.login.AuthNavEvent
+import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.flow.collectLatest
+import android.content.ContextWrapper
+import android.content.Intent
+import android.provider.Settings
+import com.example.fillin.MainActivity
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 
 data class ExpiringReportNotice(
     val daysLeft: Int,
@@ -1164,6 +1178,7 @@ fun ProfileEditScreen(
             .fillMaxSize()
             .background(Color.White)
             .statusBarsPadding()
+            .navigationBarsPadding()
             .padding(horizontal = 16.dp)
     ) {
         // Top bar: left circular back button + centered title
@@ -1379,8 +1394,8 @@ fun ProfileEditScreen(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(64.dp)
-                .padding(bottom = 18.dp)
+                .height(60.dp)
+                .padding(bottom = 16.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .clickable(enabled = canComplete) {
                     // 프로필 이미지 저장
@@ -1396,7 +1411,10 @@ fun ProfileEditScreen(
             shape = RoundedCornerShape(999.dp),
             color = if (canComplete) Color(0xFF4595E5) else Color(0xFFBFDBFE)
         ) {
-            Box(contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
                 Text(
                     text = "완료",
                     color = if (canComplete) Color.White else Color(0xFFFFFFFF).copy(alpha = 0.7f),
@@ -1411,6 +1429,14 @@ fun ProfileEditScreen(
 
 @Composable
 fun SettingsScreen(navController: NavController) {
+    val context = LocalContext.current
+    val activity = context.findActivity()
+    val appPreferences = remember { AppPreferences(context) }
+    val authViewModel: AuthViewModel = viewModel(
+        factory = AuthViewModelFactory(appPreferences)
+    )
+    val coroutineScope = rememberCoroutineScope()
+    
     var reportNoti by rememberSaveable { mutableStateOf(true) }
     var feedbackNoti by rememberSaveable { mutableStateOf(true) }
     var serviceNoti by rememberSaveable { mutableStateOf(true) }
@@ -1531,7 +1557,20 @@ fun SettingsScreen(navController: NavController) {
                 fontWeight = FontWeight.SemiBold,
                 color = Color(0xFF252526),
                 fontSize = 18.sp,
-                lineHeight = 18.sp
+                lineHeight = 18.sp,
+                modifier = Modifier.clickable {
+                    coroutineScope.launch {
+                        // 로그아웃 처리
+                        authViewModel.logout()
+                        // Activity 재시작하여 로그인 화면으로 이동
+                        activity?.let {
+                            val intent = Intent(it, MainActivity::class.java)
+                            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                            it.startActivity(intent)
+                            it.finish()
+                        }
+                    }
+                }
             )
 
             Spacer(Modifier.height(20.dp))
@@ -1988,4 +2027,13 @@ private fun BadgeAcquisitionPopup(
             }
         }
     }
+}
+
+private fun Context.findActivity(): Activity? {
+    var ctx = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
 }

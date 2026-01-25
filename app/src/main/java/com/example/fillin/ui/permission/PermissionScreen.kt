@@ -244,20 +244,11 @@ fun PermissionScreen(
 
         Button(
             onClick = {
-                // 권한이 이미 모두 허용되어 있으면 바로 다음 화면으로
-                if (isAllGranted()) {
-                    scope.launch {
-                        appPreferences.setPermissionGranted(true)
-                        navController.navigate(Screen.AfterLoginSplash.route) {
-                            popUpTo(Screen.Permission.route) { inclusive = true }
-                            launchSingleTop = true
-                        }
-                    }
-                    return@Button
-                }
-
-                // "확인" 버튼을 누르면 무조건 권한 팝업을 띄움
+                // "확인" 버튼을 누르면 무조건 권한 요청 시도
+                // 이미 권한이 허용되어 있어도 다시 요청 시도 (시스템이 팝업을 띄우지 않을 수 있음)
                 // 권한이 영구적으로 거부된 경우는 권한 요청 결과에서 처리
+                
+                // 권한 요청 (이미 허용된 권한은 시스템이 팝업을 띄우지 않지만, 요청은 시도)
                 launcher.launch(permissionsToRequest)
             },
             modifier = Modifier

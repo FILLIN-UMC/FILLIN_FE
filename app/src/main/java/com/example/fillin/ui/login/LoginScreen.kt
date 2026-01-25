@@ -63,6 +63,9 @@ fun LoginScreen(
                         launchSingleTop = true
                     }
                 }
+                AuthNavEvent.Logout -> {
+                    // 로그인 화면에 이미 있으므로 아무 동작도 하지 않음
+                }
                 is AuthNavEvent.ShowError -> {
                     Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
                 }
