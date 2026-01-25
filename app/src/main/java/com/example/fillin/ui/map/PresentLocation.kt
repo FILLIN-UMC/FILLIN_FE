@@ -2,7 +2,10 @@ package com.example.fillin.ui.map
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.location.Address
 import android.location.LocationManager
+import android.location.Geocoder
+import android.location.Geocoder.GeocodeListener
 import android.os.Looper
 import android.provider.Settings
 import com.google.android.gms.location.*
@@ -56,7 +59,8 @@ class PresentLocation(private val context: Context) {
             requestCurrentLocation(naverMap)
         }
     }
-    
+    // ★ 여기에 @SuppressLint 추가 (오류 해결 1)
+    @SuppressLint("MissingPermission")
     private fun requestCurrentLocation(naverMap: NaverMap) {
         val cancellationTokenSource = CancellationTokenSource()
         val currentLocationRequest = CurrentLocationRequest.Builder()
@@ -147,5 +151,36 @@ class PresentLocation(private val context: Context) {
         naverMap.locationOverlay.apply {
             customIcon?.let { icon = it }
         }
+    }
+
+    /**
+     * 모든 에러를 방지하는 가장 안정적인 주소 변환 함수
+     */
+    fun getAddressFromCoords(lat: Double, lng: Double, callback: (String) -> Unit) {
+        // Geocoder 초기화
+        val geocoder = android.location.Geocoder(context, java.util.Locale.KOREA)
+
+        try {
+            // [핵심] 최신/구형 가리지 않고 가장 잘 작동하는 동기식 함수 사용
+            @Suppress("DEPRECATION")
+            val addresses = geocoder.getFromLocation(lat, lng, 1)
+
+            if (!addresses.isNullOrEmpty()) {
+                val fullAddress = addresses[0].getAddressLine(0)
+                callback(cleanAddress(fullAddress))
+            } else {
+                callback("주소를 찾을 수 없는 지역입니다")
+            }
+        } catch (e: Exception) {
+            // 네트워크 연결이 없거나 서비스가 중단된 경우
+            callback("주소 로딩 실패 (네트워크 확인)")
+        }
+    }
+
+    /**
+     * "대한민국 서울특별시..." 에서 "대한민국" 등을 떼어내는 가공 함수
+     */
+    private fun cleanAddress(address: String): String {
+        return address.replace("대한민국 ", "").replace("한국 ", "")
     }
 }

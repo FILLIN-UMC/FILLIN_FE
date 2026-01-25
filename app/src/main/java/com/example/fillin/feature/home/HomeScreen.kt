@@ -181,8 +181,13 @@ fun HomeScreen(
         }
     }
     
-    // === [제보 플로우 함수] ===
+    //  === [제보 플로우 함수 수정] ===
     fun startPastFlow() {
+        // [추가] 새로운 제보를 위해 이전 데이터 초기화
+        capturedUri = null
+        geminiViewModel.clearResult()
+        finalLocation = "" // 주소 기록도 초기화하고 싶다면 추가
+
         isPastFlow = true
         isPastReportLocationMode = true
         isPastReportPhotoStage = false
@@ -191,6 +196,11 @@ fun HomeScreen(
     }
     
     fun startRealtimeFlow() {
+        // [추가] 새로운 제보를 위해 이전 데이터 초기화
+        capturedUri = null
+        geminiViewModel.clearResult()
+        finalLocation = ""
+
         isPastFlow = false
         isPastReportLocationMode = false
         isPastReportPhotoStage = false
@@ -1017,6 +1027,14 @@ fun HomeScreen(
                     cameraZoomLevel = map.cameraPosition.zoom
                     // 지도 위치가 변경될 때마다 savedStateHandle에 저장 (위도, 경도, 줌 레벨)
                     val position = map.cameraPosition
+                    // [추가] 지도 중앙 좌표를 주소로 변환하여 currentAddress 업데이트
+                    // 유저님의 PresentLocation이나 별도의 Geocoder 함수를 사용하세요.
+                    presentLocation.getAddressFromCoords(
+                        position.target.latitude,
+                        position.target.longitude
+                    ) { address ->
+                        currentAddress = address // 실시간 주소 반영
+                    }
                     navController?.currentBackStackEntry?.savedStateHandle?.apply {
                         set("home_camera_lat", position.target.latitude)
                         set("home_camera_lng", position.target.longitude)
@@ -1094,7 +1112,8 @@ fun HomeScreen(
                 topBarTitle = "실시간 제보",
                 imageUri = capturedUri,
                 initialTitle = geminiViewModel.aiResult,
-                initialLocation = finalLocation.ifEmpty { "서울시 용산구 행복대로 392" },
+                // [수정] 하드코딩 대신 currentAddress 사용
+                initialLocation = finalLocation.ifEmpty { currentAddress },
                 onLocationFieldClick = { isMapPickingMode = true },
                 onDismiss = { geminiViewModel.clearResult() },
                 onRegister = { category, title, location ->
@@ -1108,7 +1127,8 @@ fun HomeScreen(
         // [2. 위치 선택 화면 오버레이]
         if (isMapPickingMode) {
             LocationSelectionScreen(
-                initialAddress = finalLocation.ifEmpty { "서울시 용산구 행복대로 392" },
+                // [수정] 여기도 현재 지도 위치가 기본값이 됩니다.
+                initialAddress = finalLocation.ifEmpty { currentAddress },
                 onBack = { isMapPickingMode = false },
                 onLocationSet = { selectedAddress ->
                     finalLocation = selectedAddress
