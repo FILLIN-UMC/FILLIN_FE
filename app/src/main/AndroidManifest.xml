@@ -38,10 +38,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.FILLIN">
 
-        <!-- ✅ Naver Map SDK 클라이언트 ID -->
+        <!-- ✅ Naver Map SDK 클라이언트 ID (local.properties → manifestPlaceholders) -->
         <meta-data
             android:name="com.naver.maps.map.NCP_KEY_ID"
-            android:value="4aclf6ej41" />
+            android:value="${NAVER_MAP_CLIENT_ID}" />
 
         <!-- ✅ 메인 액티비티 (런처) -->
         <activity

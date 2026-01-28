@@ -34,11 +34,15 @@ android {
         val apiKey = properties.getProperty("GEMINI_API_KEY") ?: ""
         buildConfigField("String", "GEMINI_API_KEY", "\"$apiKey\"")
 
-        // BuildConfig 상수로 Kakao Native App Key 노출
-        val kakaoKey: String = (project.findProperty("KAKAO_NATIVE_APP_KEY") as String?)
-            ?: "63844752a34b7b2429eacc9b6d3e3f66"
-        buildConfigField("String", "KAKAO_NATIVE_APP_KEY", "\"$kakaoKey\"")
-        manifestPlaceholders["KAKAO_NATIVE_APP_KEY"] = kakaoKey
+        // local.properties에서 키 로드 (민감 정보 분리)
+        val kakaoNativeKey = properties.getProperty("KAKAO_NATIVE_APP_KEY") ?: ""
+        val kakaoRestKey = properties.getProperty("KAKAO_REST_API_KEY") ?: ""
+        val naverMapClientId = properties.getProperty("NAVER_MAP_CLIENT_ID") ?: ""
+        buildConfigField("String", "KAKAO_NATIVE_APP_KEY", "\"$kakaoNativeKey\"")
+        buildConfigField("String", "KAKAO_REST_API_KEY", "\"$kakaoRestKey\"")
+        buildConfigField("String", "NAVER_MAP_CLIENT_ID", "\"$naverMapClientId\"")
+        manifestPlaceholders["KAKAO_NATIVE_APP_KEY"] = kakaoNativeKey
+        manifestPlaceholders["NAVER_MAP_CLIENT_ID"] = naverMapClientId
 
       /*  // BuildConfig 상수로 Gemini API Key 노출
         val geminiKey: String = (project.findProperty("GEMINI_API_KEY") as String?)

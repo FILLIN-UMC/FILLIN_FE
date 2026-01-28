@@ -15,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.statusBarsPadding
+import com.example.fillin.BuildConfig
 import com.example.fillin.data.kakao.RetrofitClient
 import com.example.fillin.feature.report.locationselect.CenterPin
 import com.example.fillin.ui.map.MapContent
@@ -42,7 +43,7 @@ fun PastReportLocationScreen(
                     coroutineScope.launch {
                         try {
                             val response = RetrofitClient.kakaoApi.getAddressFromCoord(
-                                token = "KakaoAK bace9c32155b5a56bcbb4a74fdd04e9a", // TODO: strings.xml에서 가져오기
+                                token = "KakaoAK ${BuildConfig.KAKAO_REST_API_KEY}",
                                 longitude = cameraCenter.longitude,
                                 latitude = cameraCenter.latitude
                             )

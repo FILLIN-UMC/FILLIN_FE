@@ -1,7 +1,4 @@
 <resources>
     <string name="app_name">FILLIN</string>
-    <!-- Kakao Native App Key -->
-    <string name="kakao_native_app_key">63844752a34b7b2429eacc9b6d3e3f66</string>
-    <!-- Naver Map SDK Client ID -->
-    <string name="naver_map_client_id">4aclf6ej41</string>
+    <!-- Kakao/Naver 키는 local.properties → BuildConfig 로 분리됨 -->
 </resources>

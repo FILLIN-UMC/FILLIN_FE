@@ -9,8 +9,8 @@ class FillinApp : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        // Kakao SDK 초기화
-        val nativeKey = getString(R.string.kakao_native_app_key)
+        // Kakao SDK 초기화 (키: local.properties → BuildConfig)
+        val nativeKey = BuildConfig.KAKAO_NATIVE_APP_KEY
         Log.d("KAKAO_NATIVE_KEY", nativeKey)
         Log.d("KAKAO_KEY_HASH", Utility.getKeyHash(this))
         KakaoSdk.init(this, nativeKey)
