@@ -1,6 +1,7 @@
 package com.example.fillin.data.db
 
 import android.net.Uri
+import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestore // 데이터베이스용
 import com.google.firebase.storage.FirebaseStorage // 이미지 저장소용
 import kotlinx.coroutines.tasks.await               // 비동기 처리용 (.await())
@@ -39,7 +40,7 @@ class FirestoreRepository {
             db.collection("reports").add(reportData).await()
             true
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("FirestoreRepository", "uploadReport 실패: ${e.message}", e)
             false
         }
     }

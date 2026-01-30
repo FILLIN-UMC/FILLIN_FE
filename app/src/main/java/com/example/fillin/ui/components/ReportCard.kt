@@ -63,6 +63,7 @@ fun ReportCard(
     modifier: Modifier = Modifier,
     selectedFeedback: String? = null, // "positive" | "negative" | null
     isLiked: Boolean = report.isLiked, // 좋아요 상태 (기본값은 report.isLiked)
+    feedbackButtonsEnabled: Boolean = true, // false면 피드백 버튼 비활성(사라질 제보 화면 등)
     onPositiveFeedback: () -> Unit = {},
     onNegativeFeedback: () -> Unit = {},
     onLikeToggle: () -> Unit = {}
@@ -381,6 +382,11 @@ fun ReportCard(
                     .align(Alignment.CenterHorizontally)
             )
 
+            // 피드백 버튼: feedbackButtonsEnabled == false 이면 비활성 + 흰 글씨 + 각 색상 채움
+            val positiveFillColor = Color(0xFF5D9BE9)   // 이미지와 동일한 파란색
+            val negativeFillColor = Color(0xFFF0665E)   // 이미지와 동일한 코랄 레드
+            val feedbackTextColor = if (feedbackButtonsEnabled) null else Color(0xFFFFFFFF) // 비활성 시 FFFFFF
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -392,10 +398,17 @@ fun ReportCard(
                     modifier = Modifier
                         .weight(1f)
                         .height(51.dp)
-                        .clickable { onPositiveFeedback() },
+                        .then(
+                            if (feedbackButtonsEnabled) Modifier.clickable { onPositiveFeedback() }
+                            else Modifier
+                        ),
                     shape = RoundedCornerShape(32.dp),
-                    color = if (isPositiveSelected) Color(0xFF4595E5) else Color.White,
-                    border = BorderStroke(2.dp, Color(0xFF4595E5))
+                    color = when {
+                        !feedbackButtonsEnabled -> positiveFillColor
+                        isPositiveSelected -> Color(0xFF4595E5)
+                        else -> Color.White
+                    },
+                    border = if (feedbackButtonsEnabled) BorderStroke(2.dp, Color(0xFF4595E5)) else null
                 ) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
@@ -403,7 +416,7 @@ fun ReportCard(
                     ) {
                         Text(
                             text = "$positiveButtonText ${report.okCount}",
-                            color = if (isPositiveSelected) Color.White else Color(0xFF4595E5),
+                            color = feedbackTextColor ?: if (isPositiveSelected) Color.White else Color(0xFF4595E5),
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 16.sp,
                             lineHeight = 16.sp
@@ -416,10 +429,17 @@ fun ReportCard(
                     modifier = Modifier
                         .weight(1f)
                         .height(51.dp)
-                        .clickable { onNegativeFeedback() },
+                        .then(
+                            if (feedbackButtonsEnabled) Modifier.clickable { onNegativeFeedback() }
+                            else Modifier
+                        ),
                     shape = RoundedCornerShape(32.dp),
-                    color = if (isNegativeSelected) negativeButtonColor else Color.White,
-                    border = BorderStroke(2.dp, negativeButtonColor)
+                    color = when {
+                        !feedbackButtonsEnabled -> negativeFillColor
+                        isNegativeSelected -> negativeButtonColor
+                        else -> Color.White
+                    },
+                    border = if (feedbackButtonsEnabled) BorderStroke(2.dp, negativeButtonColor) else null
                 ) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
@@ -427,7 +447,7 @@ fun ReportCard(
                     ) {
                         Text(
                             text = "$negativeButtonText ${report.dangerCount}",
-                            color = if (isNegativeSelected) Color.White else negativeButtonColor,
+                            color = feedbackTextColor ?: if (isNegativeSelected) Color.White else negativeButtonColor,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 16.sp,
                             lineHeight = 16.sp

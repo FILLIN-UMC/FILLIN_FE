@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -234,8 +235,11 @@ fun MyPageScreen(
             onShowBottomBar = onShowBottomBar
         )
         
-        // 뱃지 획득 팝업 (uiState와 관계없이 표시)
+        // 뱃지 획득 팝업 (uiState와 관계없이 표시) — 마이페이지와 동일한 프로필 이미지 사용
         val popupData = badgePopupData
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val appPrefs = remember { AppPreferences(context) }
+        val savedProfileImageUri by appPrefs.profileImageUriFlow.collectAsState()
         if (showBadgePopup && popupData != null) {
             // 팝업이 표시될 때 네비게이션 바 숨김
             LaunchedEffect(Unit) {
@@ -243,6 +247,7 @@ fun MyPageScreen(
             }
             
             BadgeAcquisitionPopup(
+                profileImageUri = savedProfileImageUri,
                 badgeName = popupData.badgeName,
                 totalCompletedReports = popupData.totalCompletedReports,
                 dangerCount = popupData.dangerCount,
@@ -1711,41 +1716,44 @@ private fun ExpiringReportBanner(
                 )
             }
 
+            // 제보 이미지 3개: 왼쪽(뒤) → 가운데 → 오른쪽(앞) 겹쳐서 배치 (첨부 이미지와 동일)
             Box(
                 modifier = Modifier
                     .padding(end = 10.dp)
-                    .align(Alignment.CenterVertically)
-                    .size(width = 72.dp, height = 72.dp)
+                    .size(width = 72.dp, height = 48.dp),
+                contentAlignment = Alignment.CenterEnd
             ) {
+                val imageSize = 40.dp
+                val overlap = (imageSize / 2) // 이미지 절반 크기씩 겹침 (20.dp)
+                val yOffset = 4.dp // (48 - 40) / 2
+                // 왼쪽(뒤) → 가운데 → 오른쪽(앞) 순으로 그려서 오른쪽이 맨 앞에 보이게
                 Image(
                     painter = painterResource(id = R.drawable.ic_report_img),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .size(40.dp)
-                        .offset(x = 0.dp, y = 0.dp)
+                        .size(imageSize)
+                        .offset(x = (0.dp - overlap - overlap), y = yOffset)
                         .clip(CircleShape)
                         .border(2.dp, Color.White, CircleShape)
                 )
-
                 Image(
                     painter = painterResource(id = R.drawable.ic_report_img),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .size(40.dp)
-                        .offset(x = 11.dp, y = 27.dp)
+                        .size(imageSize)
+                        .offset(x = (0.dp - overlap), y = yOffset)
                         .clip(CircleShape)
                         .border(2.dp, Color.White, CircleShape)
                 )
-
                 Image(
                     painter = painterResource(id = R.drawable.ic_report_img),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .size(40.dp)
-                        .offset(x = 29.dp, y = 10.dp)
+                        .size(imageSize)
+                        .offset(x = 0.dp, y = yOffset)
                         .clip(CircleShape)
                         .border(2.dp, Color.White, CircleShape)
                 )
@@ -1861,6 +1869,7 @@ private fun BadgeLevelTooltip(
 
 @Composable
 private fun BadgeAcquisitionPopup(
+    profileImageUri: String?,
     badgeName: String,
     totalCompletedReports: Int,
     dangerCount: Int,
@@ -1880,11 +1889,12 @@ private fun BadgeAcquisitionPopup(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // 팝업 내용
+            // 팝업 내용 (가로 유지, 세로 비율 380:409)
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
+                    .aspectRatio(380f / 409f)
                     .clickable(enabled = false) { },
                 shape = RoundedCornerShape(20.dp),
                 color = Color.White,
@@ -1893,114 +1903,156 @@ private fun BadgeAcquisitionPopup(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 32.dp),
+                        .padding(top = 48.dp, start = 24.dp, end = 24.dp, bottom = 32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // 프로필 이미지
+                    // 프로필 이미지 (상자 상단으로부터 48dp 아래, 125x125)
+                    // 마이페이지와 동일한 저장된 이미지 사용
                     Box(
                         modifier = Modifier
-                            .size(80.dp)
+                            .size(125.dp)
                             .clip(CircleShape)
                             .background(Color(0xFFE5E7EB)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.ic_user_img),
-                            contentDescription = "프로필 이미지",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
+                        if (profileImageUri != null) {
+                            coil.compose.AsyncImage(
+                                model = profileImageUri,
+                                contentDescription = "프로필 이미지",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Image(
+                                painter = painterResource(id = R.drawable.ic_user_img),
+                                contentDescription = "프로필 이미지",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                    }
+                    
+                    Spacer(Modifier.height(12.dp))
+                    
+                    // 뱃지 이름 (마이페이지 TagChip과 동일한 모양, 색상 4595E5)
+                    val badgeColor = Color(0xFF4595E5)
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color.White,
+                        border = BorderStroke(2.dp, badgeColor),
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    ) {
+                        Text(
+                            text = badgeName,
+                            color = badgeColor,
+                            fontSize = 12.sp,
+                            lineHeight = 12.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
+                    
+                    Spacer(Modifier.height(25.dp))
+                    
+                    // 뱃지 획득 메시지 (뱃지 등급만 4595E5, 나머지 252526)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = badgeName,
+                            color = Color(0xFF4595E5),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 24.sp
+                        )
+                        Text(
+                            text = " 뱃지를 획득했어요!",
+                            color = Color(0xFF252526),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 24.sp
                         )
                     }
                     
                     Spacer(Modifier.height(16.dp))
                     
-                    // 뱃지 이름
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFF4595E5),
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    ) {
-                        Text(
-                            text = badgeName,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                        )
-                    }
-                    
-                    Spacer(Modifier.height(12.dp))
-                    
-                    // 뱃지 획득 메시지
-                    Text(
-                        text = "${badgeName} 뱃지를 획득했어요!",
-                        color = Color(0xFF4595E5),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp
-                    )
-                    
-                    Spacer(Modifier.height(8.dp))
-                    
                     // 완료 제보 수
                     Text(
                         text = "총 ${totalCompletedReports}개의 제보를 완료했어요",
-                        color = Color(0xFF6B7280),
+                        color = Color(0xFF252526),
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 14.sp
+                        fontSize = 16.sp
                     )
                     
-                    Spacer(Modifier.height(24.dp))
+                    Spacer(Modifier.height(32.dp))
                     
-                    // 제보 타입별 통계
+                    // 제보 타입별 통계 (세로 구분선으로 구분)
+                    val dividerColor = Color(0xFFE5E7EB)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
                                 text = "위험",
-                                color = Color(0xFF6B7280),
+                                color = Color(0xFF252526),
                                 fontWeight = FontWeight.SemiBold,
-                                fontSize = 12.sp
+                                fontSize = 16.sp
                             )
-                            Spacer(Modifier.height(4.dp))
+                            Spacer(Modifier.height(17.dp))
                             Text(
                                 text = "$dangerCount",
                                 color = Color(0xFFFF6060),
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp
+                                fontSize = 16.sp
                             )
                         }
+                        
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .fillMaxHeight()
+                                .background(dividerColor)
+                        )
                         
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
                                 text = "불편",
                                 color = Color(0xFF6B7280),
                                 fontWeight = FontWeight.SemiBold,
-                                fontSize = 12.sp
+                                fontSize = 16.sp
                             )
-                            Spacer(Modifier.height(4.dp))
+                            Spacer(Modifier.height(17.dp))
                             Text(
                                 text = "$inconvenienceCount",
                                 color = Color(0xFFF5C72F),
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp
+                                fontSize = 16.sp
                             )
                         }
+                        
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .fillMaxHeight()
+                                .background(dividerColor)
+                        )
                         
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
                                 text = "발견",
                                 color = Color(0xFF6B7280),
                                 fontWeight = FontWeight.SemiBold,
-                                fontSize = 12.sp
+                                fontSize = 16.sp
                             )
-                            Spacer(Modifier.height(4.dp))
+                            Spacer(Modifier.height(17.dp))
                             Text(
                                 text = "$discoveryCount",
                                 color = Color(0xFF29C488),
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp
+                                fontSize = 16.sp
                             )
                         }
                     }

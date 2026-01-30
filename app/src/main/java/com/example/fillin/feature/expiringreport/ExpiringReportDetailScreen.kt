@@ -314,12 +314,9 @@ fun ExpiringReportDetailScreen(navController: NavController) {
                         .padding(horizontal = 16.dp),
                     selectedFeedback = userFeedbackSelections[report.reportId],
                     isLiked = userLikeStates[report.reportId] ?: report.isLiked,
-                    onPositiveFeedback = {
-                        updateFeedback(report.reportId, true)
-                    },
-                    onNegativeFeedback = {
-                        updateFeedback(report.reportId, false)
-                    },
+                    feedbackButtonsEnabled = false, // 사라질 제보 화면에서는 피드백 버튼 비활성
+                    onPositiveFeedback = {},
+                    onNegativeFeedback = {},
                     onLikeToggle = {
                         toggleLike(report.reportId)
                     }
