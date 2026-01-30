@@ -1,4 +1,4 @@
-package com.example.fillin.ui.search
+package com.example.fillin.feature.search
 
 import com.example.fillin.domain.model.HotReportItem
 import com.example.fillin.domain.model.PlaceItem
