@@ -37,6 +37,7 @@ data class ReportCardUi(
     val reportId: Long, // 제보 ID 추가
     val validityStatus: ValidityStatus, // 유효성 상태
     val imageRes: Int,
+    val imageUrl: String? = null, // URL 이미지 (등록 제보 등)
     val views: Int,
     val typeLabel: String,
     val typeColor: Color,
@@ -112,12 +113,21 @@ fun ReportCard(
                     .aspectRatio(1f)
                     .clip(RoundedCornerShape(16.dp))
             ) {
-                Image(
-                    painter = painterResource(id = report.imageRes),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
+                if (!report.imageUrl.isNullOrBlank()) {
+                    coil.compose.AsyncImage(
+                        model = report.imageUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Image(
+                        painter = painterResource(id = report.imageRes),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
 
                 // top dark overlay
                 Box(

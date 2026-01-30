@@ -15,8 +15,10 @@ class FirestoreRepository {
         category: String,
         title: String,
         location: String,
-        imageUri: Uri
-    ): Boolean {
+        imageUri: Uri,
+        latitude: Double = 0.0,
+        longitude: Double = 0.0
+    ): UploadedReportResult? {
         return try {
             // 1. Storage에 이미지 업로드 (파일명은 시간순으로 중복 방지)
             val fileName = "reports/${System.currentTimeMillis()}.jpg"
@@ -28,23 +30,59 @@ class FirestoreRepository {
             // 2. 업로드된 이미지의 URL 가져오기
             val downloadUrl = storageRef.downloadUrl.await().toString()
 
-            // 3. Firestore에 데이터 저장
-            // DB에 저장할 데이터 객체(DTO) 생성
+            // 3. Firestore에 데이터 저장 (위도/경도 포함하여 앱 재시작 시 지도에 복원)
             val reportData = ReportData(
                 category = category,
                 title = title,
                 location = location,
-                imageUrl = downloadUrl
+                imageUrl = downloadUrl,
+                latitude = latitude,
+                longitude = longitude
             )
             // "reports" 컬렉션에 저장
-            db.collection("reports").add(reportData).await()
-            true
+            val docRef = db.collection("reports").add(reportData).await()
+            UploadedReportResult(
+                documentId = docRef.id,
+                imageUrl = downloadUrl,
+                category = category,
+                title = title,
+                location = location
+            )
         } catch (e: Exception) {
             Log.e("FirestoreRepository", "uploadReport 실패: ${e.message}", e)
-            false
+            null
+        }
+    }
+
+    /** Firestore에 저장된 제보 목록 조회 (앱 재시작 시 지도에 표시용) */
+    suspend fun getReports(): List<ReportDocument> {
+        return try {
+            val snapshot = db.collection("reports").get().await()
+            snapshot.documents.mapNotNull { doc ->
+                val data = doc.toObject(ReportData::class.java) ?: return@mapNotNull null
+                ReportDocument(documentId = doc.id, data = data)
+            }
+        } catch (e: Exception) {
+            Log.e("FirestoreRepository", "getReports 실패: ${e.message}", e)
+            emptyList()
         }
     }
 }
+
+/** Firestore 문서 ID + 데이터 (조회 결과용) */
+data class ReportDocument(
+    val documentId: String,
+    val data: ReportData
+)
+
+/** 업로드 성공 시 지도에 추가할 수 있도록 반환하는 데이터 */
+data class UploadedReportResult(
+    val documentId: String,
+    val imageUrl: String,
+    val category: String,
+    val title: String,
+    val location: String
+)
 
 /*
    Firebase Storage (창고)

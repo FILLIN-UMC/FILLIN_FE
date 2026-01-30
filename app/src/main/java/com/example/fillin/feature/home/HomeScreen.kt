@@ -66,6 +66,8 @@ import com.example.fillin.data.AppPreferences
 import com.example.fillin.data.ReportStatusManager
 import com.example.fillin.data.SampleReportData
 import com.example.fillin.data.SharedReportData
+import com.example.fillin.data.db.ReportDocument
+import com.example.fillin.data.db.UploadedReportResult
 import com.example.fillin.domain.model.Report
 import com.example.fillin.domain.model.ReportType
 import com.example.fillin.domain.model.ReportStatus
@@ -83,6 +85,10 @@ import com.naver.maps.map.overlay.OverlayImage
 import com.naver.maps.geometry.LatLng
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlin.math.*
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -95,6 +101,7 @@ import android.graphics.RadialGradient
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
+import java.net.URL
 
 @Composable
 private fun SetStatusBarColor(color: Color, darkIcons: Boolean) {
@@ -229,6 +236,22 @@ fun HomeScreen(
     var lastReportFlow by remember(backStackEntry) { mutableStateOf<String?>(null) }
     var lastSelectedReportId by remember(backStackEntry) { mutableStateOf<Long?>(null) }
 
+    // 샘플 제보 데이터 가져오기 (updatedSampleReports 사용처보다 먼저 선언)
+    val sampleReports = remember {
+        SampleReportData.getSampleReports()
+    }
+    val sampleReportsWithFeedback = remember(context) {
+        SharedReportData.loadFeedbackFromPreferences(context, sampleReports)
+    }
+    var updatedSampleReports by remember {
+        mutableStateOf(
+            sampleReportsWithFeedback.map { reportWithLocation ->
+                val updatedReport = ReportStatusManager.updateReportStatus(reportWithLocation.report)
+                reportWithLocation.copy(report = updatedReport)
+            }
+        )
+    }
+
     // [수정] 본인의 저장소(savedStateHandle)에서 "report_flow"를 실시간 관찰하는 상태 생성
     val reportFlowState = navController?.currentBackStackEntry
         ?.savedStateHandle
@@ -287,18 +310,6 @@ fun HomeScreen(
         }
     } */
     
-    // === [업로드 결과 관찰 및 알림 처리] ===
-    LaunchedEffect(reportViewModel.uploadStatus) {
-        if (reportViewModel.uploadStatus == true) {
-            Toast.makeText(context, "제보가 성공적으로 등록되었습니다!", Toast.LENGTH_SHORT).show()
-            capturedUri = null
-            geminiViewModel.clearResult()
-            reportViewModel.resetStatus()
-        } else if (reportViewModel.uploadStatus == false) {
-            Toast.makeText(context, "등록에 실패했습니다. 다시 시도해주세요.", Toast.LENGTH_SHORT).show()
-            reportViewModel.resetStatus()
-        }
-    }
     val isRealtimeReportScreenVisible = geminiViewModel.aiResult.isNotEmpty() &&
             !isMapPickingMode && !isPastReportPhotoStage && !isPastReportLocationMode && !isPastFlow
 
@@ -413,30 +424,87 @@ fun HomeScreen(
         }
     } */
     
-    // 샘플 제보 데이터 가져오기
-    val sampleReports = remember {
-        SampleReportData.getSampleReports()
-    }
-    
-    // SharedPreferences에서 피드백 데이터 로드 및 적용
-    val sampleReportsWithFeedback = remember(context) {
-        SharedReportData.loadFeedbackFromPreferences(context, sampleReports)
-    }
-    
-    // 제보 상태 업데이트 (피드백 조건에 따라 EXPIRING/EXPIRED 상태로 변경)
-    // mutableStateList로 변경하여 피드백 업데이트 시 실시간 반영
-    var updatedSampleReports by remember { 
-        mutableStateOf(
-            sampleReportsWithFeedback.map { reportWithLocation ->
-                val updatedReport = ReportStatusManager.updateReportStatus(reportWithLocation.report)
-                reportWithLocation.copy(report = updatedReport)
-            }
-        )
-    }
-    
     // 제보 데이터를 공유 객체에 저장
     LaunchedEffect(updatedSampleReports) {
         SharedReportData.setReports(updatedSampleReports)
+    }
+
+    // === [앱 시작 시 Firestore에서 등록된 제보 로드하여 지도에 표시] ===
+    LaunchedEffect(Unit) {
+        val fromFirestore = firestoreRepository.getReports()
+        if (fromFirestore.isNotEmpty()) {
+            val defaultLat = 37.5665
+            val defaultLon = 126.9780
+            val firestoreReports = fromFirestore.map { doc ->
+                val d = doc.data
+                val reportType = when (d.category) {
+                    "위험" -> ReportType.DANGER
+                    "불편" -> ReportType.INCONVENIENCE
+                    else -> ReportType.DISCOVERY
+                }
+                val lat = if (d.latitude != 0.0 || d.longitude != 0.0) d.latitude else defaultLat
+                val lon = if (d.latitude != 0.0 || d.longitude != 0.0) d.longitude else defaultLon
+                val report = Report(
+                    id = doc.documentId.hashCode().toLong().and(0x7FFFFFFFL).coerceAtLeast(10000L),
+                    title = d.location,
+                    meta = d.title,
+                    type = reportType,
+                    viewCount = 0,
+                    status = ReportStatus.ACTIVE,
+                    imageUrl = d.imageUrl,
+                    createdAtMillis = d.timestamp.toDate().time,
+                    isUserOwned = true,
+                    reporterInfo = SampleReportData.currentUser
+                )
+                ReportWithLocation(report = report, latitude = lat, longitude = lon)
+            }
+            val initialWithStatus = sampleReportsWithFeedback.map { rwl ->
+                val updated = ReportStatusManager.updateReportStatus(rwl.report)
+                rwl.copy(report = updated)
+            }
+            updatedSampleReports = initialWithStatus + firestoreReports
+        }
+    }
+
+    // === [업로드 결과 관찰 및 알림 처리 + 지도에 새 제보 추가] ===
+    LaunchedEffect(reportViewModel.uploadStatus, reportViewModel.lastUploadedReport) {
+        if (reportViewModel.uploadStatus == true) {
+            val uploaded = reportViewModel.lastUploadedReport
+            if (uploaded != null) {
+                val reportType = when (uploaded.category) {
+                    "위험" -> ReportType.DANGER
+                    "불편" -> ReportType.INCONVENIENCE
+                    else -> ReportType.DISCOVERY
+                }
+                val newId = uploaded.documentId.hashCode().toLong().and(0x7FFFFFFFL).coerceAtLeast(10000L)
+                val lat = currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
+                val lon = currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
+                val newReport = Report(
+                    id = newId,
+                    title = uploaded.location,
+                    meta = uploaded.title,
+                    type = reportType,
+                    viewCount = 0,
+                    status = ReportStatus.ACTIVE,
+                    imageUrl = uploaded.imageUrl,
+                    isUserOwned = true,
+                    reporterInfo = SampleReportData.currentUser
+                )
+                val newWithLocation = ReportWithLocation(
+                    report = newReport,
+                    latitude = lat,
+                    longitude = lon
+                )
+                updatedSampleReports = updatedSampleReports + newWithLocation
+            }
+            Toast.makeText(context, "제보가 성공적으로 등록되었습니다!", Toast.LENGTH_SHORT).show()
+            capturedUri = null
+            geminiViewModel.clearResult()
+            reportViewModel.resetStatus()
+        } else if (reportViewModel.uploadStatus == false) {
+            Toast.makeText(context, "등록에 실패했습니다. 다시 시도해주세요.", Toast.LENGTH_SHORT).show()
+            reportViewModel.resetStatus()
+        }
     }
     
     // === [알림에서 제보 선택 처리] ===
@@ -723,6 +791,48 @@ fun HomeScreen(
         return OverlayImage.fromBitmap(markerBitmap)
     }
     
+    // URL에서 비트맵 로드 (등록 제보 이미지로 마커 아이콘 생성용)
+    suspend fun loadBitmapFromUrl(url: String): Bitmap? = withContext(Dispatchers.IO) {
+        try {
+            URL(url).openStream().use { BitmapFactory.decodeStream(it) }
+        } catch (e: Exception) {
+            Log.e("HomeScreen", "loadBitmapFromUrl failed: ${e.message}")
+            null
+        }
+    }
+    
+    // 비트맵을 원형 마커 아이콘으로 변환 (등록 시 사용한 이미지와 동일하게 표시)
+    fun createCircularMarkerIconFromBitmap(bitmap: Bitmap, sizeDp: Int = 42, backgroundColor: Int = android.graphics.Color.WHITE): OverlayImage {
+        val density = context.resources.displayMetrics.density
+        val size = minOf(bitmap.width, bitmap.height)
+        val x = (bitmap.width - size) / 2
+        val y = (bitmap.height - size) / 2
+        val croppedBitmap = Bitmap.createBitmap(bitmap, x, y, size, size)
+        val backgroundSizeDp = sizeDp.toFloat()
+        val backgroundSizePx = (backgroundSizeDp * density).toInt()
+        val markerBitmap = Bitmap.createBitmap(backgroundSizePx, backgroundSizePx, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(markerBitmap)
+        val backgroundPaint = Paint().apply {
+            isAntiAlias = true
+            color = backgroundColor
+            style = Paint.Style.FILL
+        }
+        canvas.drawOval(RectF(0f, 0f, backgroundSizePx.toFloat(), backgroundSizePx.toFloat()), backgroundPaint)
+        val imageSizeDp = (sizeDp - 4).toFloat()
+        val imageSizePx = (imageSizeDp * density).toInt()
+        val imageOffset = (backgroundSizePx - imageSizePx) / 2
+        val resizedBitmap = Bitmap.createScaledBitmap(croppedBitmap, imageSizePx, imageSizePx, true)
+        val circularImageBitmap = Bitmap.createBitmap(imageSizePx, imageSizePx, Bitmap.Config.ARGB_8888)
+        val imageCanvas = Canvas(circularImageBitmap)
+        val maskPaint = Paint().apply { isAntiAlias = true }
+        val imageRect = RectF(0f, 0f, imageSizePx.toFloat(), imageSizePx.toFloat())
+        imageCanvas.drawOval(imageRect, maskPaint)
+        maskPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
+        imageCanvas.drawBitmap(resizedBitmap, null, imageRect, maskPaint)
+        canvas.drawBitmap(circularImageBitmap, imageOffset.toFloat(), imageOffset.toFloat(), null)
+        return OverlayImage.fromBitmap(markerBitmap)
+    }
+    
     // 마커를 상태로 관리
     val markers = remember { mutableListOf<Marker>() }
     
@@ -854,13 +964,12 @@ fun HomeScreen(
         return earthRadius * c
     }
     
+    // imageUrl 마커 아이콘 캐시 (줌/확대 시 깜빡임 방지)
+    val markerIconCache = remember { mutableMapOf<String, OverlayImage>() }
+    
     // 지도 마커 표시 (줌 레벨에 따라 개별 마커 또는 클러스터 마커)
     LaunchedEffect(naverMap, updatedSampleReports, selectedCategories, cameraZoomLevel) {
         naverMap?.let { naverMapInstance ->
-            // 기존 마커 제거
-            markers.forEach { it.map = null }
-            markers.clear()
-            
             // ACTIVE 상태인 제보만 필터링
             val activeReports = updatedSampleReports.filter { 
                 it.report.status == ReportStatus.ACTIVE 
@@ -868,6 +977,9 @@ fun HomeScreen(
             
             // 줌 레벨이 14 이하이면 클러스터링
             if (cameraZoomLevel <= 14.0) {
+                // 기존 마커 제거
+                markers.forEach { it.map = null }
+                markers.clear()
                 // 클러스터링 로직 (카테고리 구분 없이 거리만으로 묶기)
                 val clusters = mutableListOf<Cluster>()
                 val processed = BooleanArray(activeReports.size) { false }
@@ -929,43 +1041,58 @@ fun HomeScreen(
                     markers.add(marker)
                 }
             } else {
-                // 개별 마커 표시
+                // imageUrl 제보: 40dp(비선택) / 80dp(선택) 아이콘을 미리 로드해 캐시 → 앱 시작·카테고리 탭 시 깜빡임 제거
+                val reportsWithImage = activeReports.filter { it.report.imageUrl?.isNotBlank() == true }
+                coroutineScope {
+                    reportsWithImage.forEach { reportWithLocation ->
+                        launch {
+                            val url = reportWithLocation.report.imageUrl!!
+                            val bitmap = loadBitmapFromUrl(url) ?: return@launch
+                            val white = android.graphics.Color.WHITE
+                            val selectedBg = when (reportWithLocation.report.type) {
+                                ReportType.DANGER -> android.graphics.Color.parseColor("#FF6060")
+                                ReportType.INCONVENIENCE -> android.graphics.Color.parseColor("#F5C72F")
+                                ReportType.DISCOVERY -> android.graphics.Color.parseColor("#29C488")
+                            }
+                            if (markerIconCache["${url}_40_$white"] == null) {
+                                markerIconCache["${url}_40_$white"] = createCircularMarkerIconFromBitmap(bitmap, 40, white)
+                            }
+                            if (markerIconCache["${url}_80_$selectedBg"] == null) {
+                                markerIconCache["${url}_80_$selectedBg"] = createCircularMarkerIconFromBitmap(bitmap, 80, selectedBg)
+                            }
+                        }
+                    }
+                }
+                // 기존 마커 제거 후 개별 마커 생성 (캐시에 아이콘이 있으므로 한 번에 올바른 이미지 표시)
+                markers.forEach { it.map = null }
+                markers.clear()
                 activeReports.forEach { reportWithLocation ->
-                    // 선택된 카테고리에 해당하는 마커는 2배 크기(80dp), 아니면 기본 크기(40dp)
                     val isSelected = selectedCategories.contains(reportWithLocation.report.type)
                     val markerSize = if (isSelected) 80 else 40
-                    
-                    // 선택된 카테고리에 따라 배경 색상 결정
                     val backgroundColor = if (isSelected) {
                         when (reportWithLocation.report.type) {
-                            ReportType.DANGER -> android.graphics.Color.parseColor("#FF6060") // 위험 (빨강)
-                            ReportType.INCONVENIENCE -> android.graphics.Color.parseColor("#F5C72F") // 불편 (노랑)
-                            ReportType.DISCOVERY -> android.graphics.Color.parseColor("#29C488") // 발견 (초록)
+                            ReportType.DANGER -> android.graphics.Color.parseColor("#FF6060")
+                            ReportType.INCONVENIENCE -> android.graphics.Color.parseColor("#F5C72F")
+                            ReportType.DISCOVERY -> android.graphics.Color.parseColor("#29C488")
                         }
                     } else {
-                        android.graphics.Color.WHITE // 선택되지 않으면 흰색
+                        android.graphics.Color.WHITE
                     }
-                    
+                    val defaultIcon = when (reportWithLocation.report.type) {
+                        ReportType.DANGER -> createCircularMarkerIcon(R.drawable.ic_report_img, markerSize, backgroundColor)
+                        ReportType.INCONVENIENCE -> createCircularMarkerIcon(R.drawable.ic_report_img_2, markerSize, backgroundColor)
+                        ReportType.DISCOVERY -> createCircularMarkerIcon(R.drawable.ic_report_img_3, markerSize, backgroundColor)
+                    }
+                    val imageUrl = reportWithLocation.report.imageUrl
+                    val cacheKey = if (!imageUrl.isNullOrBlank()) "${imageUrl}_${markerSize}_$backgroundColor" else null
+                    val cachedIcon = cacheKey?.let { markerIconCache[it] }
                     val marker = Marker().apply {
                         position = LatLng(reportWithLocation.latitude, reportWithLocation.longitude)
                         map = naverMapInstance
-                        // 카테고리에 따라 다른 이미지 아이콘 설정 (원형 크롭)
-                        icon = when (reportWithLocation.report.type) {
-                            ReportType.DANGER -> {
-                                createCircularMarkerIcon(R.drawable.ic_report_img, markerSize, backgroundColor)
-                            }
-                            ReportType.INCONVENIENCE -> {
-                                createCircularMarkerIcon(R.drawable.ic_report_img_2, markerSize, backgroundColor)
-                            }
-                            ReportType.DISCOVERY -> {
-                                createCircularMarkerIcon(R.drawable.ic_report_img_3, markerSize, backgroundColor)
-                            }
-                        }
-                        // 마커 클릭 리스너 추가
+                        icon = cachedIcon ?: defaultIcon
                         setOnClickListener {
-                            // updatedSampleReports에서 최신 데이터 가져오기
-                            val latestReport = updatedSampleReports.find { 
-                                it.report.id == reportWithLocation.report.id 
+                            val latestReport = updatedSampleReports.find {
+                                it.report.id == reportWithLocation.report.id
                             } ?: reportWithLocation
                             selectedReport = latestReport
                             true
@@ -1118,7 +1245,9 @@ fun HomeScreen(
                 onDismiss = { geminiViewModel.clearResult() },
                 onRegister = { category, title, location ->
                     capturedUri?.let { uri ->
-                        reportViewModel.uploadReport(category, title, location, uri)
+                        val lat = currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
+                        val lon = currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
+                        reportViewModel.uploadReport(category, title, location, uri, lat, lon)
                     }
                 }
             )
@@ -1243,7 +1372,9 @@ fun HomeScreen(
                 },
                 onRegister = { category, title, location ->
                     capturedUri?.let { uri ->
-                        reportViewModel.uploadReport(category, title, location, uri)
+                        val lat = currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
+                        val lon = currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
+                        reportViewModel.uploadReport(category, title, location, uri, lat, lon)
                     }
                 }
             )
@@ -1402,9 +1533,10 @@ private fun convertToReportCardUi(
     }
     
     return ReportCardUi(
-        reportId = report.id, // 제보 ID 추가
+        reportId = report.id,
         validityStatus = validityStatus,
         imageRes = report.imageResId ?: R.drawable.ic_report_img,
+        imageUrl = report.imageUrl,
         views = report.viewCount,
         typeLabel = typeLabel,
         typeColor = typeColor,

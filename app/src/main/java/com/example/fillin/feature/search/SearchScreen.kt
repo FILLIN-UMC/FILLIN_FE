@@ -425,12 +425,14 @@ private fun HotReportCard(
                 )
             }
 
-            val (tagText, tagColor) = when (item.tag) {
+            val tagPair = when (item.tag) {
                 "발견" -> "발견" to Color(0xFF2DBE7A)
                 "불편" -> "불편" to Color(0xFFF2C94C)
                 "위험" -> "위험" to Color(0xFFEB5757)
                 else -> item.tag to Color(0xFF2D9CDB)
             }
+            val tagText = tagPair.first
+            val tagColor = tagPair.second
 
             Box(
                 modifier = Modifier

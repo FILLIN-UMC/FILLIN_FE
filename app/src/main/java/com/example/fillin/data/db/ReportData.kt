@@ -9,6 +9,8 @@ data class ReportData(
     val title: String = "",
     val location: String = "",
     val imageUrl: String = "",
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0,
     val timestamp: Timestamp = Timestamp.now(),
     val userId: String = "guest_user" // 추후 로그인 기능 연동 시 변경
 )
