@@ -1181,9 +1181,9 @@ fun HomeScreen(
             )
         }
         
-        // [5. AI 분석 중 로딩 오버레이]
+        // [5. AI 분석 중 / 제보 등록 중 로딩 오버레이]
         if (geminiViewModel.isAnalyzing || reportViewModel.isUploading) {
-            AiLoadingOverlay()
+            AiLoadingOverlay(isUploading = reportViewModel.isUploading)
         }
         
         // [6. 지난 상황 제보 - 위치 설정 화면]

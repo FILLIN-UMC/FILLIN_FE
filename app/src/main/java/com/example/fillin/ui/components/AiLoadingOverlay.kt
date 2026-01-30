@@ -32,10 +32,10 @@ import androidx.compose.ui.unit.sp
 import com.example.fillin.R
 import kotlin.math.sqrt
 
-// 로딩 화면
+// 로딩 화면 (isUploading == true 이면 "제보 등록 중" 문구 표시)
 @Preview
 @Composable
-fun AiLoadingOverlay() {
+fun AiLoadingOverlay(isUploading: Boolean = false) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -79,7 +79,7 @@ fun AiLoadingOverlay() {
                     Spacer(modifier = Modifier.weight(1f))
 
                     Text(
-                        text = "AI가 제보 사진을\n분석하고 있어요!",
+                        text = if (isUploading) "제보를 등록하고 있어요!" else "AI가 제보 사진을\n분석하고 있어요!",
                         color = Color.White,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
