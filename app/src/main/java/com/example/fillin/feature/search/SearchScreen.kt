@@ -1,4 +1,4 @@
-package com.example.fillin.ui.search
+package com.example.fillin.feature.search
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
