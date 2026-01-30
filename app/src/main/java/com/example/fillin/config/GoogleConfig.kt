@@ -7,5 +7,5 @@ package com.example.fillin.config
  */
 object GoogleConfig {
     // 예: "1234567890-abcdefg.apps.googleusercontent.com"
-    const val WEB_CLIENT_ID: String = ""
+    const val WEB_CLIENT_ID = "222936304688-h45k5mla4um79cdoqs0pi4huansb6nfu.apps.googleusercontent.com"
 }
