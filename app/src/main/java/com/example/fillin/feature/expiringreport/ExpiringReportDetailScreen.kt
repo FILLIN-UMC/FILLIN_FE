@@ -64,6 +64,10 @@ import com.example.fillin.ui.components.ReportCard
 import com.example.fillin.ui.components.ReportCardUi
 import com.example.fillin.ui.components.ValidityStatus
 import com.example.fillin.data.SharedReportData
+import com.example.fillin.data.ReportStatusManager
+import com.example.fillin.data.db.FirestoreRepository
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 @Preview(showBackground = true, name = "ExpiringReportDetail")
 @Composable
@@ -77,6 +81,8 @@ private fun ExpiringReportDetailPreview() {
 fun ExpiringReportDetailScreen(navController: NavController) {
     val backgroundColor = Color(0xFFF7FBFF)
     val context = LocalContext.current
+    val firestoreRepository = remember { FirestoreRepository() }
+    val scope = rememberCoroutineScope()
     
     // 사용자 피드백 선택 상태 추적 (reportId -> "positive" | "negative" | null)
     var userFeedbackSelections by remember(context) { 
@@ -90,12 +96,16 @@ fun ExpiringReportDetailScreen(navController: NavController) {
     
     // 좋아요 토글 함수
     fun toggleLike(reportId: Long) {
-        val currentLikeState = userLikeStates[reportId] ?: SharedReportData.getReports().find { it.report.id == reportId }?.report?.isSaved ?: false
+        val reportWithLocation = SharedReportData.getReports().find { it.report.id == reportId } ?: return
+        val currentLikeState = userLikeStates[reportId] ?: reportWithLocation.report.isSaved
         val newLikeState = !currentLikeState
         userLikeStates = userLikeStates + (reportId to newLikeState)
-        
-        // SharedPreferences에 좋아요 상태 저장
         SharedReportData.saveUserLikeState(context, reportId, newLikeState)
+        reportWithLocation.report.documentId?.let { docId ->
+            scope.launch {
+                firestoreRepository.updateReportLike(docId, "guest_user", newLikeState)
+            }
+        }
     }
     
     // 피드백 업데이트 함수 (토글 방식)
@@ -141,18 +151,31 @@ fun ExpiringReportDetailScreen(navController: NavController) {
                     else -> adjustedNegativeCount
                 }
                 
-                // SharedPreferences에 저장
-                SharedReportData.saveFeedbackToPreferences(
-                    context,
-                    reportId,
-                    updatedPositiveCount,
-                    updatedNegativeCount
-                )
-                
-                val updatedReport = reportWithLocation.report.copy(
+                var updatedReport = reportWithLocation.report.copy(
                     positiveFeedbackCount = updatedPositiveCount,
                     negativeFeedbackCount = updatedNegativeCount
                 )
+                updatedReport = ReportStatusManager.updateValiditySustainedTimestamps(updatedReport)
+                updatedReport.documentId?.let { docId ->
+                    scope.launch {
+                        firestoreRepository.updateReportFeedback(
+                            docId,
+                            updatedPositiveCount,
+                            updatedNegativeCount,
+                            updatedReport.positive70SustainedSinceMillis,
+                            updatedReport.positive40to60SustainedSinceMillis
+                        )
+                    }
+                } ?: run {
+                    SharedReportData.saveFeedbackToPreferences(
+                        context,
+                        reportId,
+                        updatedPositiveCount,
+                        updatedNegativeCount,
+                        updatedReport.positive70SustainedSinceMillis,
+                        updatedReport.positive40to60SustainedSinceMillis
+                    )
+                }
                 reportWithLocation.copy(report = updatedReport)
             } else {
                 reportWithLocation

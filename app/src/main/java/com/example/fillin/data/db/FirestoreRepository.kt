@@ -1,10 +1,18 @@
 package com.example.fillin.data.db
 
+import android.content.Context
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
-import com.google.firebase.firestore.FirebaseFirestore // 데이터베이스용
-import com.google.firebase.storage.FirebaseStorage // 이미지 저장소용
-import kotlinx.coroutines.tasks.await               // 비동기 처리용 (.await())
+import com.example.fillin.data.SampleReportData
+import com.example.fillin.domain.model.ReportType
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.storage.FirebaseStorage
+import kotlinx.coroutines.tasks.await
+import java.io.File
+import java.util.Date
 
 // 이미지를 먼저 올리고, 그 주소를 포함해 텍스트 데이터를 저장하는 함수입니다.
 class FirestoreRepository {
@@ -17,27 +25,28 @@ class FirestoreRepository {
         location: String,
         imageUri: Uri,
         latitude: Double = 0.0,
-        longitude: Double = 0.0
+        longitude: Double = 0.0,
+        createdAtMillis: Long? = null
     ): UploadedReportResult? {
         return try {
             // 1. Storage에 이미지 업로드 (파일명은 시간순으로 중복 방지)
             val fileName = "reports/${System.currentTimeMillis()}.jpg"
-            // System.currentTimeMillis()는 현재 시간을 밀리초 단위로 가져옵니다.
-            // 파일명이 중복되면 기존 사진이 덮어씌워지기 때문에, 현재 시간을 파일 이름으로 사용하여 고유성을 보장합니다.
             val storageRef = storage.reference.child(fileName)
-            storageRef.putFile(imageUri).await()            // 실제 파일 업로드 및 대기
+            storageRef.putFile(imageUri).await()
 
             // 2. 업로드된 이미지의 URL 가져오기
             val downloadUrl = storageRef.downloadUrl.await().toString()
 
-            // 3. Firestore에 데이터 저장 (위도/경도 포함하여 앱 재시작 시 지도에 복원)
+            // 3. Firestore에 데이터 저장 (위도/경도 포함)
+            val timestamp = createdAtMillis?.let { Timestamp(Date(it)) } ?: Timestamp.now()
             val reportData = ReportData(
                 category = category,
                 title = title,
                 location = location,
                 imageUrl = downloadUrl,
                 latitude = latitude,
-                longitude = longitude
+                longitude = longitude,
+                timestamp = timestamp
             )
             // "reports" 컬렉션에 저장
             val docRef = db.collection("reports").add(reportData).await()
@@ -51,6 +60,93 @@ class FirestoreRepository {
         } catch (e: Exception) {
             Log.e("FirestoreRepository", "uploadReport 실패: ${e.message}", e)
             null
+        }
+    }
+
+    /**
+     * 샘플 제보 데이터를 Firebase Storage + Firestore로 마이그레이션합니다.
+     * drawable 리소스를 이미지로 변환해 업로드한 뒤 Firestore에 저장합니다.
+     */
+    suspend fun migrateSampleReportsToFirebase(context: Context): Result<Int> {
+        return try {
+            val sampleReports = SampleReportData.getSampleReports()
+            var successCount = 0
+            for (reportWithLocation in sampleReports) {
+                val report = reportWithLocation.report
+                val drawableResId = report.imageResId ?: continue
+                val uri = drawableToUri(context, drawableResId) ?: continue
+                val category = when (report.type) {
+                    ReportType.DANGER -> "위험"
+                    ReportType.INCONVENIENCE -> "불편"
+                    ReportType.DISCOVERY -> "발견"
+                }
+                val result = uploadReport(
+                    category = category,
+                    title = report.meta,
+                    location = report.title,
+                    imageUri = uri,
+                    latitude = reportWithLocation.latitude,
+                    longitude = reportWithLocation.longitude,
+                    createdAtMillis = report.createdAtMillis
+                )
+                if (result != null) successCount++
+            }
+            Result.success(successCount)
+        } catch (e: Exception) {
+            Log.e("FirestoreRepository", "migrateSampleReports 실패: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    private fun drawableToUri(context: Context, drawableResId: Int): Uri? {
+        return try {
+            val bitmap = BitmapFactory.decodeResource(context.resources, drawableResId)
+                ?: return null
+            val file = File(context.cacheDir, "migrate_${drawableResId}_${System.currentTimeMillis()}.jpg")
+            file.outputStream().use { out ->
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+            }
+            Uri.fromFile(file)
+        } catch (e: Exception) {
+            Log.e("FirestoreRepository", "drawableToUri 실패: ${e.message}", e)
+            null
+        }
+    }
+
+    /** 피드백 카운트 및 유효성 지속 시점을 Firestore에 업데이트 */
+    suspend fun updateReportFeedback(
+        documentId: String,
+        positiveCount: Int,
+        negativeCount: Int,
+        positive70SustainedSinceMillis: Long? = null,
+        positive40to60SustainedSinceMillis: Long? = null
+    ) {
+        try {
+            val updates = mutableMapOf<String, Any>(
+                "positiveFeedbackCount" to positiveCount,
+                "negativeFeedbackCount" to negativeCount
+            )
+            updates["positive70SustainedSinceMillis"] = positive70SustainedSinceMillis?.let { it }
+                ?: FieldValue.delete()
+            updates["positive40to60SustainedSinceMillis"] = positive40to60SustainedSinceMillis?.let { it }
+                ?: FieldValue.delete()
+            db.collection("reports").document(documentId).update(updates).await()
+        } catch (e: Exception) {
+            Log.e("FirestoreRepository", "updateReportFeedback 실패: ${e.message}", e)
+        }
+    }
+
+    /** 좋아요 상태를 Firestore에 업데이트 (arrayUnion/arrayRemove) */
+    suspend fun updateReportLike(documentId: String, userId: String, isLiked: Boolean) {
+        try {
+            val docRef = db.collection("reports").document(documentId)
+            if (isLiked) {
+                docRef.update("likedByUserIds", FieldValue.arrayUnion(userId)).await()
+            } else {
+                docRef.update("likedByUserIds", FieldValue.arrayRemove(userId)).await()
+            }
+        } catch (e: Exception) {
+            Log.e("FirestoreRepository", "updateReportLike 실패: ${e.message}", e)
         }
     }
 

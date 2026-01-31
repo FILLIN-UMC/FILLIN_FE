@@ -84,6 +84,7 @@ import com.naver.maps.map.overlay.Marker
 import com.naver.maps.map.overlay.OverlayImage
 import com.naver.maps.geometry.LatLng
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -176,6 +177,7 @@ fun HomeScreen(
     val geminiViewModel: GeminiViewModel = viewModel(factory = GeminiViewModelFactory(geminiRepository))
     val firestoreRepository = remember { com.example.fillin.data.db.FirestoreRepository() }
     val reportViewModel: ReportViewModel = viewModel(factory = ReportViewModelFactory(firestoreRepository))
+    val scope = rememberCoroutineScope()
     
     // === [권한 Launcher] ===
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
@@ -236,14 +238,15 @@ fun HomeScreen(
     var lastReportFlow by remember(backStackEntry) { mutableStateOf<String?>(null) }
     var lastSelectedReportId by remember(backStackEntry) { mutableStateOf<Long?>(null) }
 
-    // 샘플 제보 데이터 가져오기 (updatedSampleReports 사용처보다 먼저 선언)
-    val sampleReports = remember {
-        SampleReportData.getSampleReports()
+    // 샘플 제보 데이터 (마이그레이션 완료 시 사용 안 함)
+    val sampleDataMigrated = remember(context) { SharedReportData.isSampleDataMigrated(context) }
+    val sampleReports = remember(sampleDataMigrated) {
+        if (sampleDataMigrated) emptyList() else SampleReportData.getSampleReports()
     }
-    val sampleReportsWithFeedback = remember(context) {
+    val sampleReportsWithFeedback = remember(context, sampleReports) {
         SharedReportData.loadFeedbackFromPreferences(context, sampleReports)
     }
-    var updatedSampleReports by remember {
+    var updatedSampleReports by remember(sampleReportsWithFeedback) {
         mutableStateOf(
             sampleReportsWithFeedback.map { reportWithLocation ->
                 val updatedReport = ReportStatusManager.updateReportStatus(reportWithLocation.report)
@@ -429,40 +432,61 @@ fun HomeScreen(
         SharedReportData.setReports(updatedSampleReports)
     }
 
-    // === [앱 시작 시 Firestore에서 등록된 제보 로드하여 지도에 표시] ===
+    // === [샘플 데이터 마이그레이션 + Firestore 제보 로드] ===
     LaunchedEffect(Unit) {
-        val fromFirestore = firestoreRepository.getReports()
-        if (fromFirestore.isNotEmpty()) {
-            val defaultLat = 37.5665
-            val defaultLon = 126.9780
-            val firestoreReports = fromFirestore.map { doc ->
-                val d = doc.data
-                val reportType = when (d.category) {
-                    "위험" -> ReportType.DANGER
-                    "불편" -> ReportType.INCONVENIENCE
-                    else -> ReportType.DISCOVERY
+        // 1. 마이그레이션 미완료 시 샘플 제보를 Firebase Storage + Firestore로 이전
+        if (!SharedReportData.isSampleDataMigrated(context)) {
+            firestoreRepository.migrateSampleReportsToFirebase(context)
+                .onSuccess { count ->
+                    SharedReportData.setSampleDataMigrated(context, true)
+                    Toast.makeText(context, "샘플 제보 ${count}개를 Firebase로 이전했습니다.", Toast.LENGTH_LONG).show()
                 }
-                val lat = if (d.latitude != 0.0 || d.longitude != 0.0) d.latitude else defaultLat
-                val lon = if (d.latitude != 0.0 || d.longitude != 0.0) d.longitude else defaultLon
-                val report = Report(
-                    id = doc.documentId.hashCode().toLong().and(0x7FFFFFFFL).coerceAtLeast(10000L),
-                    title = d.location,
-                    meta = d.title,
-                    type = reportType,
-                    viewCount = 0,
-                    status = ReportStatus.ACTIVE,
-                    imageUrl = d.imageUrl,
-                    createdAtMillis = d.timestamp.toDate().time,
-                    isUserOwned = true,
-                    reporterInfo = SampleReportData.currentUser
-                )
-                ReportWithLocation(report = report, latitude = lat, longitude = lon)
+                .onFailure { e ->
+                    Toast.makeText(context, "마이그레이션 실패: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+        }
+        // 2. Firestore에서 제보 로드
+        val fromFirestore = firestoreRepository.getReports()
+        val defaultLat = 37.5665
+        val defaultLon = 126.9780
+        val firestoreReports = fromFirestore.map { doc ->
+            val d = doc.data
+            val reportType = when (d.category) {
+                "위험" -> ReportType.DANGER
+                "불편" -> ReportType.INCONVENIENCE
+                else -> ReportType.DISCOVERY
             }
-            val initialWithStatus = sampleReportsWithFeedback.map { rwl ->
-                val updated = ReportStatusManager.updateReportStatus(rwl.report)
-                rwl.copy(report = updated)
-            }
-            updatedSampleReports = initialWithStatus + firestoreReports
+            val lat = if (d.latitude != 0.0 || d.longitude != 0.0) d.latitude else defaultLat
+            val lon = if (d.latitude != 0.0 || d.longitude != 0.0) d.longitude else defaultLon
+            var report = Report(
+                id = doc.documentId.hashCode().toLong().and(0x7FFFFFFFL).coerceAtLeast(10000L),
+                documentId = doc.documentId,
+                title = d.location,
+                meta = d.title,
+                type = reportType,
+                viewCount = d.viewCount,
+                status = ReportStatus.ACTIVE,
+                imageUrl = d.imageUrl,
+                createdAtMillis = d.timestamp.toDate().time,
+                positiveFeedbackCount = d.positiveFeedbackCount,
+                negativeFeedbackCount = d.negativeFeedbackCount,
+                positive70SustainedSinceMillis = d.positive70SustainedSinceMillis,
+                positive40to60SustainedSinceMillis = d.positive40to60SustainedSinceMillis,
+                isUserOwned = true,
+                isSaved = d.likedByUserIds?.contains("guest_user") ?: false,
+                reporterInfo = SampleReportData.currentUser
+            )
+            report = ReportStatusManager.updateReportStatus(report)
+            ReportWithLocation(report = report, latitude = lat, longitude = lon)
+        }
+        val initialWithStatus = sampleReportsWithFeedback.map { rwl ->
+            val updated = ReportStatusManager.updateReportStatus(rwl.report)
+            rwl.copy(report = updated)
+        }
+        updatedSampleReports = if (SharedReportData.isSampleDataMigrated(context)) {
+            firestoreReports
+        } else {
+            initialWithStatus + firestoreReports
         }
     }
 
@@ -481,6 +505,7 @@ fun HomeScreen(
                 val lon = currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
                 val newReport = Report(
                     id = newId,
+                    documentId = uploaded.documentId,
                     title = uploaded.location,
                     meta = uploaded.title,
                     type = reportType,
@@ -546,12 +571,16 @@ fun HomeScreen(
     
     // 좋아요 토글 함수
     fun toggleLike(reportId: Long) {
-        val currentLikeState = userLikeStates[reportId] ?: updatedSampleReports.find { it.report.id == reportId }?.report?.isSaved ?: false
+        val reportWithLocation = updatedSampleReports.find { it.report.id == reportId } ?: return
+        val currentLikeState = userLikeStates[reportId] ?: reportWithLocation.report.isSaved
         val newLikeState = !currentLikeState
         userLikeStates = userLikeStates + (reportId to newLikeState)
-        
-        // SharedPreferences에 좋아요 상태 저장
         SharedReportData.saveUserLikeState(context, reportId, newLikeState)
+        reportWithLocation.report.documentId?.let { docId ->
+            scope.launch {
+                firestoreRepository.updateReportLike(docId, "guest_user", newLikeState)
+            }
+        }
     }
     
     // 피드백 업데이트 함수 (토글 방식)
@@ -575,8 +604,6 @@ fun HomeScreen(
             if (reportWithLocation.report.id == reportId) {
                 val currentPositiveCount = reportWithLocation.report.positiveFeedbackCount
                 val currentNegativeCount = reportWithLocation.report.negativeFeedbackCount
-                
-                // 이전 선택 취소
                 val adjustedPositiveCount = when (currentSelection) {
                     "positive" -> maxOf(0, currentPositiveCount - 1)
                     else -> currentPositiveCount
@@ -585,8 +612,6 @@ fun HomeScreen(
                     "negative" -> maxOf(0, currentNegativeCount - 1)
                     else -> currentNegativeCount
                 }
-                
-                // 새로운 선택 적용
                 val updatedPositiveCount = when (newSelection) {
                     "positive" -> adjustedPositiveCount + 1
                     else -> adjustedPositiveCount
@@ -595,19 +620,32 @@ fun HomeScreen(
                     "negative" -> adjustedNegativeCount + 1
                     else -> adjustedNegativeCount
                 }
-                
-                // SharedPreferences에 저장
-                SharedReportData.saveFeedbackToPreferences(
-                    context,
-                    reportId,
-                    updatedPositiveCount,
-                    updatedNegativeCount
-                )
-                
-                val updatedReport = reportWithLocation.report.copy(
+                var updatedReport = reportWithLocation.report.copy(
                     positiveFeedbackCount = updatedPositiveCount,
                     negativeFeedbackCount = updatedNegativeCount
                 )
+                updatedReport = ReportStatusManager.updateValiditySustainedTimestamps(updatedReport)
+                // Firestore 제보는 Firestore에 저장, documentId 없는 제보는 SharedPreferences
+                updatedReport.documentId?.let { docId ->
+                    scope.launch {
+                        firestoreRepository.updateReportFeedback(
+                            docId,
+                            updatedPositiveCount,
+                            updatedNegativeCount,
+                            updatedReport.positive70SustainedSinceMillis,
+                            updatedReport.positive40to60SustainedSinceMillis
+                        )
+                    }
+                } ?: run {
+                    SharedReportData.saveFeedbackToPreferences(
+                        context,
+                        reportId,
+                        updatedPositiveCount,
+                        updatedNegativeCount,
+                        updatedReport.positive70SustainedSinceMillis,
+                        updatedReport.positive40to60SustainedSinceMillis
+                    )
+                }
                 reportWithLocation.copy(report = updatedReport)
             } else {
                 reportWithLocation
@@ -1553,9 +1591,13 @@ private fun convertToReportCardUi(
 }
 
 // 유효성 상태 계산 함수
+// - 긍정 70% 이상 3일 이상 유지 -> 최근에도 확인됐어요
+// - 긍정 40~60% 3일 이상 유지 -> 제보 의견이 나뉘어요
+// - 등록 2주 이상 -> 오래된 제보일 수 있어요
 private fun calculateValidityStatus(report: Report): ValidityStatus {
     val currentTimeMillis = System.currentTimeMillis()
     val twoWeeksInMillis = 14 * 24 * 60 * 60 * 1000L // 2주
+    val threeDaysInMillis = 3 * 24 * 60 * 60 * 1000L // 3일
     
     // 조건 1: 등록한지 2주 이상 된 제보는 "오래된 제보일 수 있어요"
     val daysSinceCreation = currentTimeMillis - report.createdAtMillis
@@ -1563,26 +1605,29 @@ private fun calculateValidityStatus(report: Report): ValidityStatus {
         return ValidityStatus.INVALID
     }
     
-    // 조건 2: 피드백 비율로 판단
+    // 조건 2: 피드백 비율 + 3일 유지로 판단
     val totalFeedback = report.positiveFeedbackCount + report.negativeFeedbackCount
     if (totalFeedback == 0) {
-        // 피드백이 없으면 기본적으로 유효 상태
         return ValidityStatus.VALID
     }
     
     val positiveRatio = report.positiveFeedbackCount.toDouble() / totalFeedback
     
-    // 긍정 의견 70%~100%: "최근에도 확인됐어요"
-    if (positiveRatio >= 0.7) {
-        return ValidityStatus.VALID
+    // 긍정 70% 이상 3일 이상 유지 -> "최근에도 확인됐어요"
+    report.positive70SustainedSinceMillis?.let { since ->
+        if (positiveRatio >= 0.7 && (currentTimeMillis - since) >= threeDaysInMillis) {
+            return ValidityStatus.VALID
+        }
     }
     
-    // 긍정 의견 40%~60%: "제보 의견이 나뉘어요"
-    if (positiveRatio >= 0.4 && positiveRatio <= 0.6) {
-        return ValidityStatus.INTERMEDIATE
+    // 긍정 40~60% 3일 이상 유지 -> "제보 의견이 나뉘어요"
+    report.positive40to60SustainedSinceMillis?.let { since ->
+        if (positiveRatio >= 0.4 && positiveRatio <= 0.6 && (currentTimeMillis - since) >= threeDaysInMillis) {
+            return ValidityStatus.INTERMEDIATE
+        }
     }
     
-    // 그 외 (0%~40%): 기본적으로 유효 상태 (피드백이 적거나 부정적이어도 아직 유효할 수 있음)
+    // 3일 유지 미달 또는 그 외 비율 -> 기본 유효
     return ValidityStatus.VALID
 }
 

@@ -12,5 +12,11 @@ data class ReportData(
     val latitude: Double = 0.0,
     val longitude: Double = 0.0,
     val timestamp: Timestamp = Timestamp.now(),
-    val userId: String = "guest_user" // 추후 로그인 기능 연동 시 변경
+    val userId: String = "guest_user",
+    val positiveFeedbackCount: Int = 0,
+    val negativeFeedbackCount: Int = 0,
+    val viewCount: Int = 0,
+    val likedByUserIds: List<String>? = null,
+    val positive70SustainedSinceMillis: Long? = null,
+    val positive40to60SustainedSinceMillis: Long? = null
 )

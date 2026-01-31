@@ -157,4 +157,34 @@ object ReportStatusManager {
     fun updateReportsStatus(reports: List<Report>, currentTimeMillis: Long = System.currentTimeMillis()): List<Report> {
         return reports.map { updateReportStatus(it, currentTimeMillis) }
     }
+    
+    /**
+     * 유효성 상태 표시를 위한 "지속 시간" 추적을 업데이트합니다.
+     * - 긍정 70% 이상: 해당 구간 진입 시점 기록, 벗어나면 초기화
+     * - 긍정 40~60%: 해당 구간 진입 시점 기록, 벗어나면 초기화
+     */
+    fun updateValiditySustainedTimestamps(report: Report, currentTimeMillis: Long = System.currentTimeMillis()): Report {
+        val totalFeedback = report.positiveFeedbackCount + report.negativeFeedbackCount
+        if (totalFeedback == 0) {
+            return report.copy(
+                positive70SustainedSinceMillis = null,
+                positive40to60SustainedSinceMillis = null
+            )
+        }
+        val positiveRatio = report.positiveFeedbackCount.toDouble() / totalFeedback
+        return when {
+            positiveRatio >= 0.7 -> report.copy(
+                positive70SustainedSinceMillis = report.positive70SustainedSinceMillis ?: currentTimeMillis,
+                positive40to60SustainedSinceMillis = null
+            )
+            positiveRatio >= 0.4 && positiveRatio <= 0.6 -> report.copy(
+                positive70SustainedSinceMillis = null,
+                positive40to60SustainedSinceMillis = report.positive40to60SustainedSinceMillis ?: currentTimeMillis
+            )
+            else -> report.copy(
+                positive70SustainedSinceMillis = null,
+                positive40to60SustainedSinceMillis = null
+            )
+        }
+    }
 }

@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import com.example.fillin.feature.home.ReportWithLocation
 import com.example.fillin.domain.model.Report
 import com.example.fillin.domain.model.ReporterInfo
+import com.example.fillin.data.ReportStatusManager
 
 /**
  * 앱 전체에서 공유되는 제보 데이터를 관리하는 싱글톤 객체
@@ -12,6 +13,20 @@ import com.example.fillin.domain.model.ReporterInfo
 object SharedReportData {
     private var reports: List<ReportWithLocation> = emptyList()
     private const val PREFS_NAME = "fillin_report_feedback"
+    
+    private const val KEY_SAMPLE_DATA_MIGRATED = "sample_data_migrated"
+    
+    fun isSampleDataMigrated(context: Context): Boolean {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_SAMPLE_DATA_MIGRATED, false)
+    }
+    
+    fun setSampleDataMigrated(context: Context, value: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_SAMPLE_DATA_MIGRATED, value)
+            .apply()
+    }
     
     /**
      * 제보 데이터를 설정합니다.
@@ -106,6 +121,7 @@ object SharedReportData {
     
     /**
      * SharedPreferences에서 피드백 데이터를 로드하여 제보 데이터에 적용합니다.
+     * 유효성 지속 시점(positive70, positive40to60)도 로드 후 업데이트 로직 적용합니다.
      */
     fun loadFeedbackFromPreferences(context: Context, reports: List<ReportWithLocation>): List<ReportWithLocation> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -113,25 +129,45 @@ object SharedReportData {
             val reportId = reportWithLocation.report.id
             val positiveCount = prefs.getInt("report_${reportId}_positive", reportWithLocation.report.positiveFeedbackCount)
             val negativeCount = prefs.getInt("report_${reportId}_negative", reportWithLocation.report.negativeFeedbackCount)
+            val positive70Since = prefs.getLong("report_${reportId}_positive70_since", -1L).takeIf { it > 0 }
+            val positive40to60Since = prefs.getLong("report_${reportId}_positive40to60_since", -1L).takeIf { it > 0 }
             
-            reportWithLocation.copy(
-                report = reportWithLocation.report.copy(
-                    positiveFeedbackCount = positiveCount,
-                    negativeFeedbackCount = negativeCount
-                )
+            var report = reportWithLocation.report.copy(
+                positiveFeedbackCount = positiveCount,
+                negativeFeedbackCount = negativeCount,
+                positive70SustainedSinceMillis = positive70Since,
+                positive40to60SustainedSinceMillis = positive40to60Since
             )
+            report = ReportStatusManager.updateValiditySustainedTimestamps(report)
+            // 로드 시 새로 설정된 지속 시점이 있으면 저장 (다음 로드 시 3일 누적 가능)
+            if (report.positive70SustainedSinceMillis != positive70Since || report.positive40to60SustainedSinceMillis != positive40to60Since) {
+                saveFeedbackToPreferences(
+                    context, reportId, positiveCount, negativeCount,
+                    report.positive70SustainedSinceMillis, report.positive40to60SustainedSinceMillis
+                )
+            }
+            reportWithLocation.copy(report = report)
         }
     }
     
     /**
-     * 특정 제보의 피드백 카운트를 SharedPreferences에 저장합니다.
+     * 특정 제보의 피드백 카운트 및 유효성 지속 시점을 SharedPreferences에 저장합니다.
      */
-    fun saveFeedbackToPreferences(context: Context, reportId: Long, positiveCount: Int, negativeCount: Int) {
+    fun saveFeedbackToPreferences(
+        context: Context,
+        reportId: Long,
+        positiveCount: Int,
+        negativeCount: Int,
+        positive70SustainedSinceMillis: Long? = null,
+        positive40to60SustainedSinceMillis: Long? = null
+    ) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit()
+        val editor = prefs.edit()
             .putInt("report_${reportId}_positive", positiveCount)
             .putInt("report_${reportId}_negative", negativeCount)
-            .apply()
+        positive70SustainedSinceMillis?.let { editor.putLong("report_${reportId}_positive70_since", it) }
+        positive40to60SustainedSinceMillis?.let { editor.putLong("report_${reportId}_positive40to60_since", it) }
+        editor.apply()
     }
     
     /**

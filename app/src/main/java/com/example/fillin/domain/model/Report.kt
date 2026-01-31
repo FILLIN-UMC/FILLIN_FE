@@ -16,6 +16,7 @@ data class ReporterInfo(
 
 data class Report(
     val id: Long,
+    val documentId: String? = null,  // Firestore 문서 ID (피드백 업데이트용)
     val title: String,      // 행복길 2129-11
     val meta: String,       // 가는길 255m
     val type: ReportType,
@@ -29,11 +30,15 @@ data class Report(
 
     val createdAtMillis: Long = System.currentTimeMillis(),
     
-    // 피드백 데이터
-    val positiveFeedbackCount: Int = 0,  // 긍정 피드백 수 ("이제 괜찮아요")
-    val negativeFeedbackCount: Int = 0,  // 부정 피드백 수 ("아직 위험해요")
+    // 피드백 데이터 (카테고리별: 위험=아직위험해요/이제괜찮아요, 불편=아직불편해요/해결됐어요, 발견=지금도있어요/이제없어요)
+    val positiveFeedbackCount: Int = 0,  // 긍정 피드백 수
+    val negativeFeedbackCount: Int = 0,  // 부정 피드백 수
     
-    // 피드백 비율이 조건을 만족한 시점 (7일 이상 지속 추적용)
+    // 유효성 상태 3일 유지 추적: 긍정 70% 이상 / 40~60% 구간 진입 시점
+    val positive70SustainedSinceMillis: Long? = null,
+    val positive40to60SustainedSinceMillis: Long? = null,
+    
+    // 피드백 비율이 조건을 만족한 시점 (7일 이상 지속 추적용, EXPIRING 전환)
     val feedbackConditionMetAtMillis: Long? = null,
     
     // EXPIRING 상태로 변경된 시점 (3일 후 EXPIRED로 변경)
