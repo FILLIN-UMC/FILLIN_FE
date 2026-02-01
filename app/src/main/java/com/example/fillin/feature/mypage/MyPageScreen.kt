@@ -126,11 +126,6 @@ import com.example.fillin.MainActivity
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 
-data class ExpiringReportNotice(
-    val daysLeft: Int,
-    val summaryText: String, // e.g., "위험 1, 발견 2"
-)
-
 const val ROUTE_PROFILE_EDIT = "profile_edit"
 const val ROUTE_SETTINGS = "settings"
 const val ROUTE_NOTIFICATIONS = "notifications"
@@ -310,7 +305,7 @@ private fun MyPageContent(
                 onNavigateExpiringDetail = onNavigateExpiringDetail,
                 onHideBottomBar = onHideBottomBar,
                 onShowBottomBar = onShowBottomBar,
-                expiringNotice = ExpiringReportNotice(daysLeft = 5, summaryText = "위험 1, 발견 2")
+                expiringNotice = uiState.expiringNotice
             )
         }
     }

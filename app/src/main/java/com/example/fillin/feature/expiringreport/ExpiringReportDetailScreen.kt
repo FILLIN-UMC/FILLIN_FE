@@ -126,12 +126,13 @@ fun ExpiringReportDetailScreen(navController: NavController) {
         
         // SharedReportData에서 해당 제보 찾기
         val reports = SharedReportData.getReports()
+        val now = System.currentTimeMillis()
         val updatedReports = reports.map { reportWithLocation ->
             if (reportWithLocation.report.id == reportId) {
                 val currentPositiveCount = reportWithLocation.report.positiveFeedbackCount
                 val currentNegativeCount = reportWithLocation.report.negativeFeedbackCount
-                
-                // 이전 선택 취소
+                val currentNegativeTimestamps = reportWithLocation.report.negativeFeedbackTimestamps
+
                 val adjustedPositiveCount = when (currentSelection) {
                     "positive" -> maxOf(0, currentPositiveCount - 1)
                     else -> currentPositiveCount
@@ -140,8 +141,7 @@ fun ExpiringReportDetailScreen(navController: NavController) {
                     "negative" -> maxOf(0, currentNegativeCount - 1)
                     else -> currentNegativeCount
                 }
-                
-                // 새로운 선택 적용
+
                 val updatedPositiveCount = when (newSelection) {
                     "positive" -> adjustedPositiveCount + 1
                     else -> adjustedPositiveCount
@@ -150,12 +150,19 @@ fun ExpiringReportDetailScreen(navController: NavController) {
                     "negative" -> adjustedNegativeCount + 1
                     else -> adjustedNegativeCount
                 }
-                
+                val updatedNegativeTimestamps = when {
+                    newSelection == "negative" -> currentNegativeTimestamps + now
+                    currentSelection == "negative" && newSelection != "negative" -> currentNegativeTimestamps.dropLast(1)
+                    else -> currentNegativeTimestamps
+                }
+
                 var updatedReport = reportWithLocation.report.copy(
                     positiveFeedbackCount = updatedPositiveCount,
-                    negativeFeedbackCount = updatedNegativeCount
+                    negativeFeedbackCount = updatedNegativeCount,
+                    negativeFeedbackTimestamps = updatedNegativeTimestamps
                 )
                 updatedReport = ReportStatusManager.updateValiditySustainedTimestamps(updatedReport)
+                updatedReport = ReportStatusManager.updateReportStatus(updatedReport)
                 updatedReport.documentId?.let { docId ->
                     scope.launch {
                         firestoreRepository.updateReportFeedback(
@@ -163,7 +170,8 @@ fun ExpiringReportDetailScreen(navController: NavController) {
                             updatedPositiveCount,
                             updatedNegativeCount,
                             updatedReport.positive70SustainedSinceMillis,
-                            updatedReport.positive40to60SustainedSinceMillis
+                            updatedReport.positive40to60SustainedSinceMillis,
+                            updatedNegativeTimestamps
                         )
                     }
                 } ?: run {
@@ -173,7 +181,8 @@ fun ExpiringReportDetailScreen(navController: NavController) {
                         updatedPositiveCount,
                         updatedNegativeCount,
                         updatedReport.positive70SustainedSinceMillis,
-                        updatedReport.positive40to60SustainedSinceMillis
+                        updatedReport.positive40to60SustainedSinceMillis,
+                        updatedNegativeTimestamps
                     )
                 }
                 reportWithLocation.copy(report = updatedReport)

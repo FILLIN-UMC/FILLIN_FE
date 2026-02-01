@@ -79,7 +79,7 @@ object SampleReportData {
                 latitude = 37.556300,
                 longitude = 126.923200
             ),
-            // 홍대입구역 근처 - 2
+            // 홍대입구역 근처 - 2 (부정 의견 4건)
             ReportWithLocation(
                 report = Report(
                     id = 2,
@@ -90,6 +90,13 @@ object SampleReportData {
                     status = ReportStatus.ACTIVE,
                     imageResId = R.drawable.ic_report_img_2,
                     createdAtMillis = dateToMillis(2026, 1, 19),
+                    negativeFeedbackCount = 4,
+                    negativeFeedbackTimestamps = listOf(
+                        dateToMillis(2026, 2, 1),
+                        dateToMillis(2026, 2, 2),
+                        dateToMillis(2026, 2, 3),
+                        dateToMillis(2026, 2, 4)
+                    ),
                     isUserOwned = true,
                     reporterInfo = currentUser
                 ),

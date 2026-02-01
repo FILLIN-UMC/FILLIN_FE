@@ -1,5 +1,11 @@
 package com.example.fillin.feature.mypage
 
+/** 사라질 제보 알림용 (EXPIRING 상태 제보가 있을 때만 표시) */
+data class ExpiringReportNotice(
+    val daysLeft: Int,
+    val summaryText: String // e.g. "위험 1, 발견 2"
+)
+
 data class MyPageSummary(
     val nickname: String,
     val totalReports: Int,
@@ -22,7 +28,9 @@ sealed interface MyPageUiState {
     data object Loading : MyPageUiState
     data class Success(
         val summary: MyPageSummary,
-        val reports: List<MyReportCard>
+        val reports: List<MyReportCard>,
+        /** EXPIRING 상태 제보가 있을 때만 non-null (사라질 제보 알림 표시) */
+        val expiringNotice: ExpiringReportNotice? = null
     ) : MyPageUiState
     data class Error(val message: String) : MyPageUiState
 }

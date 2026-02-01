@@ -15,6 +15,8 @@ data class ReportData(
     val userId: String = "guest_user",
     val positiveFeedbackCount: Int = 0,
     val negativeFeedbackCount: Int = 0,
+    /** 부정 피드백이 발생한 시점 목록 (최근 7일 내 3건 이상이면 EXPIRING) */
+    val negativeFeedbackTimestamps: List<Long>? = null,
     val viewCount: Int = 0,
     val likedByUserIds: List<String>? = null,
     val positive70SustainedSinceMillis: Long? = null,
