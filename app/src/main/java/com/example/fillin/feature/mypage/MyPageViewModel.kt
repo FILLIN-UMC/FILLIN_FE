@@ -55,6 +55,7 @@ class MyPageViewModel(
                 title = reportWithLocation.report.title,
                 meta = reportWithLocation.report.meta,
                 imageResId = reportWithLocation.report.imageResId,
+                imageUrl = reportWithLocation.report.imageUrl,
                 viewCount = reportWithLocation.report.viewCount
             )
         }

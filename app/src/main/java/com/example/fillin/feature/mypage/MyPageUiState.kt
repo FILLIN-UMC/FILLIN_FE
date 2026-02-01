@@ -13,7 +13,8 @@ data class MyReportCard(
     val id: Long,
     val title: String,
     val meta: String,
-    val imageResId: Int? = null,  // 제보 이미지 리소스 ID
+    val imageResId: Int? = null,  // 제보 이미지 리소스 ID (로컬 리소스)
+    val imageUrl: String? = null,  // 제보 이미지 URL (Firestore/Storage)
     val viewCount: Int = 0  // 조회수
 )
 

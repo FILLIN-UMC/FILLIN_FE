@@ -649,6 +649,7 @@ private fun MyPageSuccess(
                             title = r.title,
                             meta = r.meta,
                             imageResId = r.imageResId,
+                            imageUrl = r.imageUrl,
                             badgeCount = r.viewCount
                         )
                     }
@@ -736,6 +737,7 @@ private fun SavedReportCard(
     title: String,
     meta: String,
     imageResId: Int?,
+    imageUrl: String? = null,
     badgeCount: Int
 ) {
     // 주소에서 시/도/구 제거 및 위치 설명 제거 (실제 주소만 표시)
@@ -757,13 +759,22 @@ private fun SavedReportCard(
         Box(
             modifier = Modifier.fillMaxSize()
         ) {
-            // 제보 이미지가 있으면 해당 이미지를 사용하고, 없으면 기본 이미지 사용
-            Image(
-                painter = painterResource(id = imageResId ?: R.drawable.ic_report_img),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
+            // URL이 있으면 해당 제보 사진 로드, 없으면 리소스 또는 기본 이미지 사용
+            if (!imageUrl.isNullOrBlank()) {
+                coil.compose.AsyncImage(
+                    model = imageUrl,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Image(
+                    painter = painterResource(id = imageResId ?: R.drawable.ic_report_img),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
 
             Box(
                 modifier = Modifier
@@ -1078,9 +1089,10 @@ private fun MyPageScreenPreview() {
             discoveryCount = 1
         ),
         reports = listOf(
-            MyReportCard(1, "행복길 2129-11", "가는길 255m", null, 5),
-            MyReportCard(2, "행복길 2129-11", "가는길 255m", null, 8),
-            MyReportCard(3, "행복길 2129-11", "가는길 255m", null, 12)        )
+            MyReportCard(1, "행복길 2129-11", "가는길 255m", null, null, 5),
+            MyReportCard(2, "행복길 2129-11", "가는길 255m", null, null, 8),
+            MyReportCard(3, "행복길 2129-11", "가는길 255m", null, null, 12)
+        )
     )
 
     FILLINTheme {
