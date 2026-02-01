@@ -33,6 +33,8 @@ data class Report(
     // 피드백 데이터 (카테고리별: 위험=아직위험해요/이제괜찮아요, 불편=아직불편해요/해결됐어요, 발견=지금도있어요/이제없어요)
     val positiveFeedbackCount: Int = 0,  // 긍정 피드백 수
     val negativeFeedbackCount: Int = 0,  // 부정 피드백 수
+    /** 부정 피드백이 발생한 시점 목록 (최근 7일 내 3건 이상이면 EXPIRING) */
+    val negativeFeedbackTimestamps: List<Long> = emptyList(),
     
     // 유효성 상태 3일 유지 추적: 긍정 70% 이상 / 40~60% 구간 진입 시점
     val positive70SustainedSinceMillis: Long? = null,
