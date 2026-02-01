@@ -42,6 +42,9 @@ fun ReportRegistrationScreen(
     var location by remember { mutableStateOf(initialLocation) }
     // 공백을 제외한 글자 수를 계산하는 변수를 미리 선언합니다.
     val pureCharCount = title.count { !it.isWhitespace() }
+    // 제목과 장소가 모두 입력되었는지 확인하는 상태 변수
+    // isNotBlank()는 공백만 있는 경우도 빈 값으로 처리해 줍니다.
+    val isFormValid = title.isNotBlank() && location.isNotBlank()
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = Color.White
@@ -168,7 +171,12 @@ fun ReportRegistrationScreen(
             Button(
                 onClick = { onRegister(selectedCategory, title, location) },
                 modifier = Modifier.fillMaxWidth().height(56.dp).padding(bottom = 12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4090E0)),
+                enabled = isFormValid, // [핵심] 유효성 검사 결과 연결
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF4090E0), // 활성 상태 색상
+                    disabledContainerColor = Color(0xFFBDBDBD), // 비활성 상태 색상 (회색)
+                    disabledContentColor = Color.White
+                ),
                 shape = RoundedCornerShape(28.dp)
             ) {
                 Text("등록하기", fontWeight = FontWeight.Bold, color = Color.White)
