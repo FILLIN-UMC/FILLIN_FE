@@ -132,9 +132,16 @@ object SharedReportData {
             val positive70Since = prefs.getLong("report_${reportId}_positive70_since", -1L).takeIf { it > 0 }
             val positive40to60Since = prefs.getLong("report_${reportId}_positive40to60_since", -1L).takeIf { it > 0 }
             
+            val negativeTimestamps = prefs.getString("report_${reportId}_negative_timestamps", null)
+                ?.split(",")
+                ?.mapNotNull { it.toLongOrNull() }
+                ?.filter { it > 0 }
+                ?: reportWithLocation.report.negativeFeedbackTimestamps
+
             var report = reportWithLocation.report.copy(
                 positiveFeedbackCount = positiveCount,
                 negativeFeedbackCount = negativeCount,
+                negativeFeedbackTimestamps = negativeTimestamps,
                 positive70SustainedSinceMillis = positive70Since,
                 positive40to60SustainedSinceMillis = positive40to60Since
             )
@@ -151,7 +158,7 @@ object SharedReportData {
     }
     
     /**
-     * 특정 제보의 피드백 카운트 및 유효성 지속 시점을 SharedPreferences에 저장합니다.
+     * 특정 제보의 피드백 카운트, 부정 피드백 시점 목록, 유효성 지속 시점을 SharedPreferences에 저장합니다.
      */
     fun saveFeedbackToPreferences(
         context: Context,
@@ -159,7 +166,8 @@ object SharedReportData {
         positiveCount: Int,
         negativeCount: Int,
         positive70SustainedSinceMillis: Long? = null,
-        positive40to60SustainedSinceMillis: Long? = null
+        positive40to60SustainedSinceMillis: Long? = null,
+        negativeFeedbackTimestamps: List<Long>? = null
     ) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val editor = prefs.edit()
@@ -167,6 +175,9 @@ object SharedReportData {
             .putInt("report_${reportId}_negative", negativeCount)
         positive70SustainedSinceMillis?.let { editor.putLong("report_${reportId}_positive70_since", it) }
         positive40to60SustainedSinceMillis?.let { editor.putLong("report_${reportId}_positive40to60_since", it) }
+        if (negativeFeedbackTimestamps != null) {
+            editor.putString("report_${reportId}_negative_timestamps", negativeFeedbackTimestamps.joinToString(","))
+        }
         editor.apply()
     }
     
