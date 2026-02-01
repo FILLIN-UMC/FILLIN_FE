@@ -458,7 +458,6 @@ fun HomeScreen(
             }
             val lat = if (d.latitude != 0.0 || d.longitude != 0.0) d.latitude else defaultLat
             val lon = if (d.latitude != 0.0 || d.longitude != 0.0) d.longitude else defaultLon
-            val negativeTimestamps = d.negativeFeedbackTimestamps?.mapNotNull { (it as? Number)?.toLong()?.takeIf { t -> t > 0 } } ?: emptyList()
             var report = Report(
                 id = doc.documentId.hashCode().toLong().and(0x7FFFFFFFL).coerceAtLeast(10000L),
                 documentId = doc.documentId,
@@ -471,7 +470,6 @@ fun HomeScreen(
                 createdAtMillis = d.timestamp.toDate().time,
                 positiveFeedbackCount = d.positiveFeedbackCount,
                 negativeFeedbackCount = d.negativeFeedbackCount,
-                negativeFeedbackTimestamps = negativeTimestamps,
                 positive70SustainedSinceMillis = d.positive70SustainedSinceMillis,
                 positive40to60SustainedSinceMillis = d.positive40to60SustainedSinceMillis,
                 isUserOwned = true,
@@ -601,13 +599,11 @@ fun HomeScreen(
         // SharedPreferences에 사용자 선택 상태 저장
         SharedReportData.saveUserFeedbackSelection(context, reportId, newSelection)
         
-        // 제보 데이터 업데이트 (부정 피드백 시점 목록: 부정 추가 시 append, 부정 취소 시 최근 1건 제거)
-        val now = System.currentTimeMillis()
+        // 제보 데이터 업데이트
         updatedSampleReports = updatedSampleReports.map { reportWithLocation ->
             if (reportWithLocation.report.id == reportId) {
                 val currentPositiveCount = reportWithLocation.report.positiveFeedbackCount
                 val currentNegativeCount = reportWithLocation.report.negativeFeedbackCount
-                val currentNegativeTimestamps = reportWithLocation.report.negativeFeedbackTimestamps
                 val adjustedPositiveCount = when (currentSelection) {
                     "positive" -> maxOf(0, currentPositiveCount - 1)
                     else -> currentPositiveCount
@@ -624,18 +620,11 @@ fun HomeScreen(
                     "negative" -> adjustedNegativeCount + 1
                     else -> adjustedNegativeCount
                 }
-                val updatedNegativeTimestamps = when {
-                    newSelection == "negative" -> currentNegativeTimestamps + now
-                    currentSelection == "negative" && newSelection != "negative" -> currentNegativeTimestamps.dropLast(1)
-                    else -> currentNegativeTimestamps
-                }
                 var updatedReport = reportWithLocation.report.copy(
                     positiveFeedbackCount = updatedPositiveCount,
-                    negativeFeedbackCount = updatedNegativeCount,
-                    negativeFeedbackTimestamps = updatedNegativeTimestamps
+                    negativeFeedbackCount = updatedNegativeCount
                 )
                 updatedReport = ReportStatusManager.updateValiditySustainedTimestamps(updatedReport)
-                updatedReport = ReportStatusManager.updateReportStatus(updatedReport)
                 // Firestore 제보는 Firestore에 저장, documentId 없는 제보는 SharedPreferences
                 updatedReport.documentId?.let { docId ->
                     scope.launch {
@@ -644,8 +633,7 @@ fun HomeScreen(
                             updatedPositiveCount,
                             updatedNegativeCount,
                             updatedReport.positive70SustainedSinceMillis,
-                            updatedReport.positive40to60SustainedSinceMillis,
-                            updatedNegativeTimestamps
+                            updatedReport.positive40to60SustainedSinceMillis
                         )
                     }
                 } ?: run {
@@ -655,8 +643,7 @@ fun HomeScreen(
                         updatedPositiveCount,
                         updatedNegativeCount,
                         updatedReport.positive70SustainedSinceMillis,
-                        updatedReport.positive40to60SustainedSinceMillis,
-                        updatedNegativeTimestamps
+                        updatedReport.positive40to60SustainedSinceMillis
                     )
                 }
                 reportWithLocation.copy(report = updatedReport)
