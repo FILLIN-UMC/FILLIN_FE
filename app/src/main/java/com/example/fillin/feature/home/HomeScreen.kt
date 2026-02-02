@@ -151,6 +151,9 @@ fun HomeScreen(
         mutableStateOf(SharedReportData.loadUserFeedbackSelections(context))
     }
     
+    // 나의 제보에서 사용자가 삭제(사라진 제보로 이동)한 제보 ID (지도/마이페이지에서 숨김)
+    val userDeletedFromRegistered = remember { SharedReportData.loadUserDeletedFromRegisteredIds(context) }
+
     // 사용자 좋아요 상태 추적 (reportId -> Boolean)
     var userLikeStates by remember(context) { 
         mutableStateOf(SharedReportData.loadUserLikeStates(context))
@@ -167,6 +170,8 @@ fun HomeScreen(
     var currentAddress by remember { mutableStateOf("서울시 용산구 행복대로 392") } // 예시 주소
     var isMapPickingMode by remember { mutableStateOf(false) } // 위치 선택 모드 상태
     var finalLocation by remember { mutableStateOf("") } // 확정된 주소 저장
+    var finalLatitude by remember { mutableStateOf<Double?>(null) } // 지난 상황 제보 선택 좌표
+    var finalLongitude by remember { mutableStateOf<Double?>(null) }
     var isPastReportLocationMode by remember { mutableStateOf(false) } // 위치 설정 단계
     var isPastReportPhotoStage by remember { mutableStateOf(false) } // 사진 선택 단계
     var savedCameraPosition: CameraPosition? by remember { mutableStateOf(null) } // 카메라 실행 전 지도 위치 저장
@@ -195,7 +200,9 @@ fun HomeScreen(
         // [추가] 새로운 제보를 위해 이전 데이터 초기화
         capturedUri = null
         geminiViewModel.clearResult()
-        finalLocation = "" // 주소 기록도 초기화하고 싶다면 추가
+        finalLocation = ""
+        finalLatitude = null
+        finalLongitude = null
 
         isPastFlow = true
         isPastReportLocationMode = true
@@ -243,7 +250,7 @@ fun HomeScreen(
     val sampleReports = remember(sampleDataMigrated) {
         if (sampleDataMigrated) emptyList() else SampleReportData.getSampleReports()
     }
-    val sampleReportsWithFeedback = remember(context, sampleReports) {
+    val sampleReportsWithFeedback = remember(context, sampleReports, userDeletedFromRegistered) {
         SharedReportData.loadFeedbackFromPreferences(context, sampleReports)
     }
     var updatedSampleReports by remember(sampleReportsWithFeedback) {
@@ -427,13 +434,14 @@ fun HomeScreen(
         }
     } */
     
-    // 제보 데이터를 공유 객체에 저장
-    LaunchedEffect(updatedSampleReports) {
-        SharedReportData.setReports(updatedSampleReports)
+    // 제보 데이터를 공유 객체에 저장 (완전 삭제한 제보 제외)
+    val permanentlyDeleted = remember(backStackEntry) { SharedReportData.loadUserPermanentlyDeletedIds(context) }
+    LaunchedEffect(updatedSampleReports, permanentlyDeleted) {
+        SharedReportData.setReports(updatedSampleReports.filter { it.report.id !in permanentlyDeleted })
     }
 
     // === [샘플 데이터 마이그레이션 + Firestore 제보 로드] ===
-    LaunchedEffect(Unit) {
+    LaunchedEffect(Unit, userDeletedFromRegistered) {
         // 1. 마이그레이션 미완료 시 샘플 제보를 Firebase Storage + Firestore로 이전
         if (!SharedReportData.isSampleDataMigrated(context)) {
             firestoreRepository.migrateSampleReportsToFirebase(context)
@@ -483,14 +491,21 @@ fun HomeScreen(
             report = ReportStatusManager.updateReportStatus(report)
             ReportWithLocation(report = report, latitude = lat, longitude = lon)
         }
+        // 나의 제보에서 삭제한 제보는 EXPIRED로 적용
+        val userDeletedIds = SharedReportData.loadUserDeletedFromRegisteredIds(context)
+        val firestoreReportsWithExpired = firestoreReports.map { rwl ->
+            if (rwl.report.id in userDeletedIds) {
+                rwl.copy(report = rwl.report.copy(status = ReportStatus.EXPIRED))
+            } else rwl
+        }
         val initialWithStatus = sampleReportsWithFeedback.map { rwl ->
             val updated = ReportStatusManager.updateReportStatus(rwl.report)
             rwl.copy(report = updated)
         }
         updatedSampleReports = if (SharedReportData.isSampleDataMigrated(context)) {
-            firestoreReports
+            firestoreReportsWithExpired
         } else {
-            initialWithStatus + firestoreReports
+            initialWithStatus + firestoreReportsWithExpired
         }
     }
 
@@ -505,8 +520,9 @@ fun HomeScreen(
                     else -> ReportType.DISCOVERY
                 }
                 val newId = uploaded.documentId.hashCode().toLong().and(0x7FFFFFFFL).coerceAtLeast(10000L)
-                val lat = currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
-                val lon = currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
+                // 지난 상황 제보: 선택한 좌표 사용 / 실시간 제보: 현재 위치 사용
+                val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
+                val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
                 val newReport = Report(
                     id = newId,
                     documentId = uploaded.documentId,
@@ -670,8 +686,9 @@ fun HomeScreen(
                 reportWithLocation
             }
         }
-        // SharedReportData에도 반영
-        SharedReportData.setReports(updatedSampleReports)
+        // SharedReportData에도 반영 (완전 삭제한 제보 제외)
+        val permanentlyDeletedIds = SharedReportData.loadUserPermanentlyDeletedIds(context)
+        SharedReportData.setReports(updatedSampleReports.filter { it.report.id !in permanentlyDeletedIds })
     }
     
     // 현재 시간 기준 최근 3일 제보 필터링 및 정렬 (ACTIVE 상태만)
@@ -1025,11 +1042,13 @@ fun HomeScreen(
     val markerIconCache = remember { mutableMapOf<String, OverlayImage>() }
     
     // 지도 마커 표시 (줌 레벨에 따라 개별 마커 또는 클러스터 마커)
-    LaunchedEffect(naverMap, updatedSampleReports, selectedCategories, cameraZoomLevel) {
+    LaunchedEffect(naverMap, updatedSampleReports, selectedCategories, cameraZoomLevel, userDeletedFromRegistered, permanentlyDeleted) {
         naverMap?.let { naverMapInstance ->
-            // ACTIVE 상태인 제보만 필터링
-            val activeReports = updatedSampleReports.filter { 
-                it.report.status == ReportStatus.ACTIVE 
+            // ACTIVE 상태인 제보만 필터링 (나의 제보에서 삭제한 제보, 완전 삭제한 제보는 지도에 표시 안 함)
+            val activeReports = updatedSampleReports.filter {
+                it.report.id !in permanentlyDeleted &&
+                it.report.status == ReportStatus.ACTIVE &&
+                !(it.report.isUserOwned && it.report.id in userDeletedFromRegistered)
             }
             
             // 줌 레벨이 14 이하이면 클러스터링
@@ -1377,8 +1396,10 @@ fun HomeScreen(
             PastReportLocationScreen(
                 initialAddress = finalLocation.ifEmpty { currentAddress },
                 onBack = { isPastReportLocationMode = false },
-                onLocationSet = { selectedAddress ->
+                onLocationSet = { selectedAddress, lat, lon ->
                     finalLocation = selectedAddress
+                    finalLatitude = lat
+                    finalLongitude = lon
                     isPastReportLocationMode = false
                     // [핵심 로직] 이미 사진이 있다면(등록 화면에서 위치 수정을 위해 온 경우)
                     // 사진 선택 단계로 가지 않고 바로 등록 화면으로 돌아갑니다.
@@ -1429,8 +1450,9 @@ fun HomeScreen(
                 },
                 onRegister = { category, title, location ->
                     capturedUri?.let { uri ->
-                        val lat = currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
-                        val lon = currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
+                        // 지난 상황 제보: 사용자가 선택한 위치 좌표 사용 (위치 설정 화면에서 선택한 곳)
+                        val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
+                        val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
                         reportViewModel.uploadReport(category, title, location, uri, lat, lon)
                     }
                 }

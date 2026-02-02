@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -51,6 +52,7 @@ data class MyReportUi(
 
 @Composable
 fun MyReportsScreen(navController: NavController) {
+    val context = LocalContext.current
     var tab by remember { mutableStateOf(MyReportsTab.REGISTERED) }
     var editMode by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<MyReportUi?>(null) }
@@ -63,6 +65,14 @@ fun MyReportsScreen(navController: NavController) {
             val updatedReport = ReportStatusManager.updateReportStatus(reportWithLocation.report)
             reportWithLocation.copy(report = updatedReport)
         }
+    }
+
+    // 사용자가 삭제한 제보 ID (SharedPreferences에 저장되어 화면 재진입 시에도 유지)
+    val deletedFromRegistered = remember {
+        SharedReportData.loadUserDeletedFromRegisteredIds(context)
+    }
+    val permanentlyDeleted = remember {
+        SharedReportData.loadUserPermanentlyDeletedIds(context)
     }
     
     // ReportWithLocation을 MyReportUi로 변환하는 헬퍼 함수
@@ -100,21 +110,22 @@ fun MyReportsScreen(navController: NavController) {
         )
     }
     
-    // 등록된 제보 (ACTIVE 상태)
-    val registered = remember(userReports) {
+    // 등록된 제보: (사라진 제보로 이동한 것 + 완전 삭제한 것) 제외
+    val registered = remember(userReports, deletedFromRegistered, permanentlyDeleted) {
         mutableStateListOf(
             *userReports
-                .filter { it.report.status == ReportStatus.ACTIVE }
+                .filter { it.report.id !in deletedFromRegistered && it.report.id !in permanentlyDeleted }
                 .map { convertToMyReportUi(it) }
                 .toTypedArray()
         )
     }
-    
-    // 사라진 제보 (EXPIRED 상태)
-    val expired = remember(userReports) {
+
+    // 사라진 제보: EXPIRED 상태이거나 사용자가 등록된 제보에서 삭제한 것. 완전 삭제한 것 제외.
+    val expired = remember(userReports, deletedFromRegistered, permanentlyDeleted) {
         mutableStateListOf(
             *userReports
-                .filter { it.report.status == ReportStatus.EXPIRED }
+                .filter { it.report.id !in permanentlyDeleted }
+                .filter { it.report.status == ReportStatus.EXPIRED || it.report.id in deletedFromRegistered }
                 .map { convertToMyReportUi(it) }
                 .toTypedArray()
         )
@@ -254,16 +265,19 @@ fun MyReportsScreen(navController: NavController) {
                             val target = pendingDelete
                             if (target != null) {
                                 if (tab == MyReportsTab.REGISTERED) {
-                                    // Remove from registered
+                                    // Remove from registered, move to expired (SharedPreferences에 저장)
                                     val removed = registered.removeAll { it.id == target.id }
-                                    // If actually removed, add to expired so it appears under "사라진 제보"
                                     if (removed) {
-                                        // add to the top (most recent)
+                                        SharedReportData.addUserDeletedFromRegisteredId(context, target.id)
                                         expired.add(0, target)
                                     }
                                 } else {
-                                    // If already in expired tab, remove permanently
-                                    expired.removeAll { it.id == target.id }
+                                    // 사라진 제보에서 완전 삭제 (SharedPreferences 저장 + 메모리에서 제거)
+                                    val removed = expired.removeAll { it.id == target.id }
+                                    if (removed) {
+                                        SharedReportData.addUserPermanentlyDeletedId(context, target.id)
+                                        SharedReportData.removeReport(target.id)
+                                    }
                                 }
                             }
 

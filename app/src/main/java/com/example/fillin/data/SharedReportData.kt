@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import com.example.fillin.feature.home.ReportWithLocation
 import com.example.fillin.domain.model.Report
 import com.example.fillin.domain.model.ReporterInfo
+import com.example.fillin.domain.model.ReportStatus
 import com.example.fillin.data.ReportStatusManager
 
 /**
@@ -45,9 +46,19 @@ object SharedReportData {
     /**
      * 사용자가 작성한 제보만 필터링하여 반환합니다.
      * isUserOwned == true인 제보만 반환합니다.
+     * @param context 제공 시 완전 삭제한 제보(userPermanentlyDeletedIds) 제외
      */
-    fun getUserReports(): List<ReportWithLocation> {
-        return reports.filter { it.report.isUserOwned }
+    fun getUserReports(context: Context? = null): List<ReportWithLocation> {
+        val userReports = reports.filter { it.report.isUserOwned }
+        return if (context != null) {
+            val permanentlyDeleted = loadUserPermanentlyDeletedIds(context)
+            userReports.filter { it.report.id !in permanentlyDeleted }
+        } else userReports
+    }
+
+    /** 메모리에서 제보 제거 (사라진 제보 탭에서 완전 삭제 시 호출) */
+    fun removeReport(reportId: Long) {
+        reports = reports.filter { it.report.id != reportId }
     }
     
     /**
@@ -151,6 +162,10 @@ object SharedReportData {
             )
             report = ReportStatusManager.updateValiditySustainedTimestamps(report)
             report = ReportStatusManager.updateReportStatus(report)
+            // 나의 제보에서 사용자가 삭제한 제보는 EXPIRED로 강제
+            if (reportId in loadUserDeletedFromRegisteredIds(context)) {
+                report = report.copy(status = ReportStatus.EXPIRED)
+            }
             // 로드 시 새로 설정된 지속 시점이 있으면 저장 (다음 로드 시 3일 누적 가능)
             if (report.positive70SustainedSinceMillis != positive70Since || report.positive40to60SustainedSinceMillis != positive40to60Since
                 || report.feedbackConditionMetAtMillis != feedbackConditionMet || report.expiringAtMillis != expiringAt) {
@@ -273,6 +288,70 @@ object SharedReportData {
         )
     }
     
+    private const val KEY_EXPIRING_ALERT_DISMISSED_DAYS = "expiring_alert_dismissed_days_left"
+
+    /** 사라질 제보 알림에서 X로 숨긴 daysLeft 목록 (순차 표시: 3일→2일→1일) */
+    fun loadExpiringAlertDismissedDaysLeft(context: Context): Set<Int> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val str = prefs.getString(KEY_EXPIRING_ALERT_DISMISSED_DAYS, null) ?: return emptySet()
+        return str.split(",").mapNotNull { it.toIntOrNull() }.toSet()
+    }
+
+    /** daysLeft 그룹을 X로 숨김 처리 (다음 알림 표시) */
+    fun addExpiringAlertDismissedDaysLeft(context: Context, daysLeft: Int) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val current = loadExpiringAlertDismissedDaysLeft(context) + daysLeft
+        prefs.edit().putString(KEY_EXPIRING_ALERT_DISMISSED_DAYS, current.joinToString(",")).apply()
+    }
+
+    /** 사라질 제보 알림 상태 초기화 (EXPIRING 제보 없을 때) */
+    fun clearExpiringAlertState(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .remove(KEY_EXPIRING_ALERT_DISMISSED_DAYS)
+            .apply()
+    }
+
+    private const val KEY_USER_DELETED_FROM_REGISTERED = "user_deleted_from_registered_ids"
+    private const val KEY_USER_PERMANENTLY_DELETED = "user_permanently_deleted_ids"
+
+    /** 등록된 제보 탭에서 사용자가 삭제(사라진 제보로 이동)한 제보 ID 목록 */
+    fun loadUserDeletedFromRegisteredIds(context: Context): Set<Long> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val str = prefs.getString(KEY_USER_DELETED_FROM_REGISTERED, null) ?: return emptySet()
+        return str.split(",").mapNotNull { it.toLongOrNull() }.toSet()
+    }
+
+    /** 등록된 제보에서 삭제 시 사라진 제보로 이동 (저장) */
+    fun addUserDeletedFromRegisteredId(context: Context, reportId: Long) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val current = loadUserDeletedFromRegisteredIds(context) + reportId
+        prefs.edit().putString(KEY_USER_DELETED_FROM_REGISTERED, current.joinToString(",")).apply()
+        setReportStatusToExpired(reportId)
+    }
+
+    /** 메모리 내 제보 상태를 EXPIRED로 변경 (삭제 시 즉시 반영) */
+    fun setReportStatusToExpired(reportId: Long) {
+        reports = reports.map { rwl ->
+            if (rwl.report.id == reportId) {
+                rwl.copy(report = rwl.report.copy(status = ReportStatus.EXPIRED))
+            } else rwl
+        }
+    }
+
+    /** 사용자가 완전 삭제한 제보 ID 목록 */
+    fun loadUserPermanentlyDeletedIds(context: Context): Set<Long> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val str = prefs.getString(KEY_USER_PERMANENTLY_DELETED, null) ?: return emptySet()
+        return str.split(",").mapNotNull { it.toLongOrNull() }.toSet()
+    }
+
+    /** 사라진 제보에서 완전 삭제 시 저장 */
+    fun addUserPermanentlyDeletedId(context: Context, reportId: Long) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val current = loadUserPermanentlyDeletedIds(context) + reportId
+        prefs.edit().putString(KEY_USER_PERMANENTLY_DELETED, current.joinToString(",")).apply()
+    }
+
     /**
      * 알림 확인 상태를 저장하는 SharedPreferences 이름
      */

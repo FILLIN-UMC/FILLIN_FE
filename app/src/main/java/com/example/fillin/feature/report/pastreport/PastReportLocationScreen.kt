@@ -26,10 +26,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 fun PastReportLocationScreen(
     initialAddress: String,
     onBack: () -> Unit,
-    onLocationSet: (String) -> Unit
+    onLocationSet: (address: String, latitude: Double, longitude: Double) -> Unit
 ) {
-    // 실시간 주소 상태 관리
+    // 실시간 주소 및 좌표 상태 관리
     var centerAddress by remember { mutableStateOf(initialAddress) }
+    var centerLat by remember { mutableStateOf(37.5665) }
+    var centerLon by remember { mutableStateOf(126.9780) }
     val coroutineScope = rememberCoroutineScope()
 
     Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
@@ -40,6 +42,8 @@ fun PastReportLocationScreen(
                 // 지도가 멈추면 중앙 좌표의 주소를 가져옴 (역지오코딩)
                 naverMap.addOnCameraIdleListener {
                     val cameraCenter = naverMap.cameraPosition.target
+                    centerLat = cameraCenter.latitude
+                    centerLon = cameraCenter.longitude
                     coroutineScope.launch {
                         try {
                             val response = RetrofitClient.kakaoApi.getAddressFromCoord(
@@ -125,7 +129,7 @@ fun PastReportLocationScreen(
                 )
                 Spacer(Modifier.height(16.dp))
                 Button(
-                    onClick = { onLocationSet(centerAddress) }, // 최종 선택된 주소를 부모로 전달
+                    onClick = { onLocationSet(centerAddress, centerLat, centerLon) }, // 선택된 주소와 좌표 전달
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4090E0)),
                     shape = RoundedCornerShape(28.dp)

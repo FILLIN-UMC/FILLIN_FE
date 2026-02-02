@@ -114,6 +114,7 @@ import com.example.fillin.R
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import com.example.fillin.data.AppPreferences
+import com.example.fillin.data.SharedReportData
 import com.example.fillin.ui.login.AuthViewModel
 import com.example.fillin.ui.login.AuthViewModelFactory
 import com.example.fillin.ui.login.AuthNavEvent
@@ -162,6 +163,12 @@ fun MyPageScreen(
     SetStatusBarColor(color = Color.White, darkIcons = true)
 
     val state by vm.uiState.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    // 마이페이지 진입 시마다 최신 제보 데이터 로드 (새 제보 등록 후 총 제보 수·저장한 제보 반영)
+    LaunchedEffect(Unit) {
+        vm.load(context)
+    }
     
     // 뱃지 획득 팝업 표시 여부 및 뱃지 정보
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -305,7 +312,7 @@ private fun MyPageContent(
                 onNavigateExpiringDetail = onNavigateExpiringDetail,
                 onHideBottomBar = onHideBottomBar,
                 onShowBottomBar = onShowBottomBar,
-                expiringNotice = uiState.expiringNotice
+                expiringNoticeList = uiState.expiringNoticeList
             )
         }
     }
@@ -329,7 +336,7 @@ private fun MyPageSuccess(
     onNavigateExpiringDetail: () -> Unit = { },
     onHideBottomBar: () -> Unit,
     onShowBottomBar: () -> Unit,
-    expiringNotice: ExpiringReportNotice? = null
+    expiringNoticeList: List<ExpiringReportNotice> = emptyList()
 ) {
     val scrollState = rememberScrollState()
     var lastScrollValue by remember { mutableStateOf(0) }
@@ -344,8 +351,17 @@ private fun MyPageSuccess(
     }
 
     var menuExpanded by remember { mutableStateOf(false) }
-    var showExpiringNotice by rememberSaveable(expiringNotice) {
-        mutableStateOf(expiringNotice != null)
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    // 사라질 제보 알림: 남은 기간 많은 순(3일→2일→1일)으로 순차 표시, X 누르면 다음 알림
+    var dismissedDaysLeft by remember(expiringNoticeList) {
+        mutableStateOf(SharedReportData.loadExpiringAlertDismissedDaysLeft(context))
+    }
+    val currentExpiringNotice = remember(expiringNoticeList, dismissedDaysLeft) {
+        expiringNoticeList.firstOrNull { it.daysLeft !in dismissedDaysLeft }
+    }
+    LaunchedEffect(expiringNoticeList) {
+        if (expiringNoticeList.isEmpty()) SharedReportData.clearExpiringAlertState(context)
     }
     var showBadgeTooltip by remember { mutableStateOf(false) }
     var badgeInfoIconCenterXInWindow by remember { mutableStateOf<Float?>(null) }
@@ -442,12 +458,16 @@ private fun MyPageSuccess(
                     .verticalScroll(scrollState)
             ) {
                 Spacer(Modifier.height(16.dp))
-                if (expiringNotice != null && showExpiringNotice) {
+                if (currentExpiringNotice != null) {
                     ExpiringReportBanner(
-                        daysLeft = expiringNotice.daysLeft,
-                        summaryText = expiringNotice.summaryText,
+                        daysLeft = currentExpiringNotice.daysLeft,
+                        summaryText = currentExpiringNotice.summaryText,
+                        reportImages = currentExpiringNotice.reportImages,
                         onClick = onNavigateExpiringDetail,
-                        onDismiss = { showExpiringNotice = false }
+                        onDismiss = {
+                            SharedReportData.addExpiringAlertDismissedDaysLeft(context, currentExpiringNotice.daysLeft)
+                            dismissedDaysLeft = dismissedDaysLeft + currentExpiringNotice.daysLeft
+                        }
                     )
                     Spacer(Modifier.height(12.dp))
                 }
@@ -629,6 +649,10 @@ private fun MyPageSuccess(
                 )
                 Spacer(Modifier.height(12.dp))
 
+                // 나의 제보에서 삭제한 제보는 저장한 제보에서 제외
+                val userDeletedFromRegistered = remember { SharedReportData.loadUserDeletedFromRegisteredIds(context) }
+                val filteredReports = reports.filter { it.id !in userDeletedFromRegistered }
+
                 // 2-column grid using rows (pairs)
                 val savedScrollState = rememberScrollState()
 
@@ -638,7 +662,7 @@ private fun MyPageSuccess(
                         .horizontalScroll(savedScrollState),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    reports.forEach { r ->
+                    filteredReports.forEach { r ->
                         SavedReportCard(
                             modifier = Modifier.width(170.dp),
                             title = r.title,
@@ -1666,6 +1690,7 @@ private fun SettingLinkRow(title: String, onClick: () -> Unit) {
 private fun ExpiringReportBanner(
     daysLeft: Int,
     summaryText: String,
+    reportImages: List<ExpiringReportImage> = emptyList(),
     onClick: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1723,7 +1748,7 @@ private fun ExpiringReportBanner(
                 )
             }
 
-            // 제보 이미지 3개: 왼쪽(뒤) → 가운데 → 오른쪽(앞) 겹쳐서 배치 (첨부 이미지와 동일)
+            // 제보 이미지: 등록일 오래된 순(왼쪽) → 최신(오른쪽) 겹쳐서 배치, 최대 3개
             Box(
                 modifier = Modifier
                     .padding(end = 10.dp)
@@ -1731,39 +1756,34 @@ private fun ExpiringReportBanner(
                 contentAlignment = Alignment.CenterEnd
             ) {
                 val imageSize = 40.dp
-                val overlap = (imageSize / 2) // 이미지 절반 크기씩 겹침 (20.dp)
-                val yOffset = 4.dp // (48 - 40) / 2
-                // 왼쪽(뒤) → 가운데 → 오른쪽(앞) 순으로 그려서 오른쪽이 맨 앞에 보이게
-                Image(
-                    painter = painterResource(id = R.drawable.ic_report_img),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
+                val overlap = (imageSize / 2)
+                val yOffset = 4.dp
+                val displayImages = reportImages.take(3).ifEmpty {
+                    listOf(ExpiringReportImage(imageResId = R.drawable.ic_report_img))
+                }
+                displayImages.forEachIndexed { index, img ->
+                    val xOffset = 0.dp - overlap * (displayImages.size - 1 - index)
+                    val modifier = Modifier
                         .size(imageSize)
-                        .offset(x = (0.dp - overlap - overlap), y = yOffset)
+                        .offset(x = xOffset, y = yOffset)
                         .clip(CircleShape)
                         .border(2.dp, Color.White, CircleShape)
-                )
-                Image(
-                    painter = painterResource(id = R.drawable.ic_report_img),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .size(imageSize)
-                        .offset(x = (0.dp - overlap), y = yOffset)
-                        .clip(CircleShape)
-                        .border(2.dp, Color.White, CircleShape)
-                )
-                Image(
-                    painter = painterResource(id = R.drawable.ic_report_img),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .size(imageSize)
-                        .offset(x = 0.dp, y = yOffset)
-                        .clip(CircleShape)
-                        .border(2.dp, Color.White, CircleShape)
-                )
+                    if (!img.imageUrl.isNullOrBlank()) {
+                        coil.compose.AsyncImage(
+                            model = img.imageUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = modifier
+                        )
+                    } else {
+                        Image(
+                            painter = painterResource(id = img.imageResId ?: R.drawable.ic_report_img),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = modifier
+                        )
+                    }
+                }
             }
 
             Box(
