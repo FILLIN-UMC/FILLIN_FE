@@ -113,14 +113,16 @@ class FirestoreRepository {
         }
     }
 
-    /** 피드백 카운트, 부정 피드백 시점 목록, 유효성 지속 시점을 Firestore에 업데이트 */
+    /** 피드백 카운트, 유효성 지속 시점, EXPIRING 조건 시점을 Firestore에 업데이트 */
     suspend fun updateReportFeedback(
         documentId: String,
         positiveCount: Int,
         negativeCount: Int,
         positive70SustainedSinceMillis: Long? = null,
         positive40to60SustainedSinceMillis: Long? = null,
-        negativeFeedbackTimestamps: List<Long>? = null
+        negativeFeedbackTimestamps: List<Long>? = null,
+        feedbackConditionMetAtMillis: Long? = null,
+        expiringAtMillis: Long? = null
     ) {
         try {
             val updates = mutableMapOf<String, Any>(
@@ -130,6 +132,10 @@ class FirestoreRepository {
             updates["positive70SustainedSinceMillis"] = positive70SustainedSinceMillis?.let { it }
                 ?: FieldValue.delete()
             updates["positive40to60SustainedSinceMillis"] = positive40to60SustainedSinceMillis?.let { it }
+                ?: FieldValue.delete()
+            updates["feedbackConditionMetAtMillis"] = feedbackConditionMetAtMillis?.let { it }
+                ?: FieldValue.delete()
+            updates["expiringAtMillis"] = expiringAtMillis?.let { it }
                 ?: FieldValue.delete()
             if (negativeFeedbackTimestamps != null) {
                 updates["negativeFeedbackTimestamps"] = negativeFeedbackTimestamps

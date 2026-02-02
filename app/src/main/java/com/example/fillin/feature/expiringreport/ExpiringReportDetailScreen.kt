@@ -171,7 +171,9 @@ fun ExpiringReportDetailScreen(navController: NavController) {
                             updatedNegativeCount,
                             updatedReport.positive70SustainedSinceMillis,
                             updatedReport.positive40to60SustainedSinceMillis,
-                            updatedNegativeTimestamps
+                            updatedNegativeTimestamps,
+                            updatedReport.feedbackConditionMetAtMillis,
+                            updatedReport.expiringAtMillis
                         )
                     }
                 } ?: run {
@@ -182,7 +184,9 @@ fun ExpiringReportDetailScreen(navController: NavController) {
                         updatedNegativeCount,
                         updatedReport.positive70SustainedSinceMillis,
                         updatedReport.positive40to60SustainedSinceMillis,
-                        updatedNegativeTimestamps
+                        updatedNegativeTimestamps,
+                        updatedReport.feedbackConditionMetAtMillis,
+                        updatedReport.expiringAtMillis
                     )
                 }
                 reportWithLocation.copy(report = updatedReport)

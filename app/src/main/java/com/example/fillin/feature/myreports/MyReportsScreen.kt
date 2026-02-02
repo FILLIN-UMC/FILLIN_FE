@@ -45,7 +45,8 @@ data class MyReportUi(
     val titleTop: String,  // "행복길 122-11"
     val titleBottom: String, // "가는길 255m"
     val placeName: String, // 카드 아래 "붕어빵 가게"
-    val imageResId: Int? = null // 제보 이미지 리소스 ID
+    val imageResId: Int? = null, // 제보 이미지 리소스 ID (로컬)
+    val imageUrl: String? = null  // 제보 이미지 URL (Firestore/Storage)
 )
 
 @Composable
@@ -94,7 +95,8 @@ fun MyReportsScreen(navController: NavController) {
             titleTop = addressWithoutCityDistrict,
             titleBottom = report.meta,
             placeName = "", // 현재 데이터에 장소명이 없으므로 빈 문자열
-            imageResId = report.imageResId
+            imageResId = report.imageResId,
+            imageUrl = report.imageUrl
         )
     }
     
@@ -322,12 +324,21 @@ private fun MyReportGridItem(
                 .aspectRatio(1f)
         ) {
             Box(Modifier.fillMaxSize()) {
-                Image(
-                    painter = painterResource(id = item.imageResId ?: R.drawable.ic_report_img),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
+                if (!item.imageUrl.isNullOrBlank()) {
+                    coil.compose.AsyncImage(
+                        model = item.imageUrl,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Image(
+                        painter = painterResource(id = item.imageResId ?: R.drawable.ic_report_img),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
                 if (editMode) {
                     Box(
                         modifier = Modifier

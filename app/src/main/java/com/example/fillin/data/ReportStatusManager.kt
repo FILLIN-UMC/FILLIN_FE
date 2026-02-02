@@ -23,44 +23,70 @@ object ReportStatusManager {
         return positiveRatio to negativeRatio
     }
     
-    /** 최근 7일 내 부정 피드백 건수 (EXPIRING 조건: 3건 이상) */
-    private const val EXPIRING_NEGATIVE_COUNT_THRESHOLD = 3
     private const val SEVEN_DAYS_IN_MILLIS = 7 * 24 * 60 * 60 * 1000L
     private const val THREE_DAYS_IN_MILLIS = 3 * 24 * 60 * 60 * 1000L
 
     /**
-     * 최근 7일 동안 부정 의견이 3건 이상인지 확인합니다.
-     * (사라질 예정 EXPIRING 조건)
+     * 피드백 비율이 사라질 예정(EXPIRING) 조건을 만족하는지 확인합니다.
+     * - 긍정 의견 0%~30% 7일 이상 유지
+     * - 부정 의견 70%~100% 7일 이상 유지
      */
-    fun countNegativeInLast7Days(report: Report, currentTimeMillis: Long = System.currentTimeMillis()): Int {
-        val cutoff = currentTimeMillis - SEVEN_DAYS_IN_MILLIS
-        return report.negativeFeedbackTimestamps.count { it >= cutoff }
-    }
+    fun shouldBeExpiring(report: Report, currentTimeMillis: Long): Boolean {
+        val (positiveRatio, negativeRatio) = calculateFeedbackRatio(report)
+        val totalFeedback = report.positiveFeedbackCount + report.negativeFeedbackCount
+        if (totalFeedback == 0) return false
 
-    /**
-     * 피드백이 사라질 예정(EXPIRING) 조건을 만족하는지 확인합니다.
-     * - 최근 7일 동안 부정 의견이 3건 이상
-     */
-    fun shouldBeExpiring(report: Report, currentTimeMillis: Long = System.currentTimeMillis()): Boolean {
-        return countNegativeInLast7Days(report, currentTimeMillis) >= EXPIRING_NEGATIVE_COUNT_THRESHOLD
+        val positiveConditionMet = positiveRatio <= 0.3
+        val negativeConditionMet = negativeRatio >= 0.7
+        val conditionMet = positiveConditionMet || negativeConditionMet
+
+        val conditionMetAt = report.feedbackConditionMetAtMillis
+        if (conditionMetAt != null && conditionMet) {
+            val daysSinceConditionMet = currentTimeMillis - conditionMetAt
+            return daysSinceConditionMet >= SEVEN_DAYS_IN_MILLIS
+        }
+        return false
     }
 
     /**
      * 제보 상태를 업데이트합니다.
-     * - 최근 7일 동안 부정 의견 3건 이상 → EXPIRING (사라질 예정, 알림 표시)
+     * - 긍정 0%~30% 또는 부정 70%~100%가 7일 이상 유지 → EXPIRING (사라질 예정)
      * - EXPIRING 상태가 된 지 3일 후 → EXPIRED (사라진 제보)
-     * - EXPIRING인데 최근 7일 부정이 3건 미만이면 ACTIVE로 복귀
+     * - 조건을 더 이상 만족하지 않으면 ACTIVE로 복귀
      */
     fun updateReportStatus(report: Report, currentTimeMillis: Long = System.currentTimeMillis()): Report {
-        val conditionMet = shouldBeExpiring(report, currentTimeMillis)
+        val (positiveRatio, negativeRatio) = calculateFeedbackRatio(report)
+        val totalFeedback = report.positiveFeedbackCount + report.negativeFeedbackCount
+
+        if (totalFeedback == 0) {
+            return if (report.feedbackConditionMetAtMillis != null) {
+                report.copy(feedbackConditionMetAtMillis = null)
+            } else report
+        }
+
+        val positiveConditionMet = positiveRatio <= 0.3
+        val negativeConditionMet = negativeRatio >= 0.7
+        val conditionMet = positiveConditionMet || negativeConditionMet
 
         when (report.status) {
             ReportStatus.ACTIVE -> {
                 if (conditionMet) {
-                    return report.copy(
-                        status = ReportStatus.EXPIRING,
-                        expiringAtMillis = currentTimeMillis
-                    )
+                    val conditionMetAt = report.feedbackConditionMetAtMillis
+                    return if (conditionMetAt == null) {
+                        report.copy(feedbackConditionMetAtMillis = currentTimeMillis)
+                    } else {
+                        val daysSinceConditionMet = currentTimeMillis - conditionMetAt
+                        if (daysSinceConditionMet >= SEVEN_DAYS_IN_MILLIS) {
+                            report.copy(
+                                status = ReportStatus.EXPIRING,
+                                expiringAtMillis = currentTimeMillis
+                            )
+                        } else report
+                    }
+                } else {
+                    return if (report.feedbackConditionMetAtMillis != null) {
+                        report.copy(feedbackConditionMetAtMillis = null)
+                    } else report
                 }
             }
 
@@ -75,6 +101,7 @@ object ReportStatusManager {
                 if (!conditionMet) {
                     return report.copy(
                         status = ReportStatus.ACTIVE,
+                        feedbackConditionMetAtMillis = null,
                         expiringAtMillis = null
                     )
                 }

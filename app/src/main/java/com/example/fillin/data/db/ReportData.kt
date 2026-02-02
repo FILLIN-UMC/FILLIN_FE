@@ -20,5 +20,9 @@ data class ReportData(
     val viewCount: Int = 0,
     val likedByUserIds: List<String>? = null,
     val positive70SustainedSinceMillis: Long? = null,
-    val positive40to60SustainedSinceMillis: Long? = null
+    val positive40to60SustainedSinceMillis: Long? = null,
+    /** 피드백 비율 조건(긍정≤30% 또는 부정≥70%) 만족 시점, 7일 유지 시 EXPIRING */
+    val feedbackConditionMetAtMillis: Long? = null,
+    /** EXPIRING 전환 시점, 3일 후 EXPIRED */
+    val expiringAtMillis: Long? = null
 )

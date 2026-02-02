@@ -474,6 +474,8 @@ fun HomeScreen(
                 negativeFeedbackTimestamps = negativeTimestamps,
                 positive70SustainedSinceMillis = d.positive70SustainedSinceMillis,
                 positive40to60SustainedSinceMillis = d.positive40to60SustainedSinceMillis,
+                feedbackConditionMetAtMillis = d.feedbackConditionMetAtMillis,
+                expiringAtMillis = d.expiringAtMillis,
                 isUserOwned = true,
                 isSaved = d.likedByUserIds?.contains("guest_user") ?: false,
                 reporterInfo = SampleReportData.currentUser
@@ -645,7 +647,9 @@ fun HomeScreen(
                             updatedNegativeCount,
                             updatedReport.positive70SustainedSinceMillis,
                             updatedReport.positive40to60SustainedSinceMillis,
-                            updatedNegativeTimestamps
+                            updatedNegativeTimestamps,
+                            updatedReport.feedbackConditionMetAtMillis,
+                            updatedReport.expiringAtMillis
                         )
                     }
                 } ?: run {
@@ -656,7 +660,9 @@ fun HomeScreen(
                         updatedNegativeCount,
                         updatedReport.positive70SustainedSinceMillis,
                         updatedReport.positive40to60SustainedSinceMillis,
-                        updatedNegativeTimestamps
+                        updatedNegativeTimestamps,
+                        updatedReport.feedbackConditionMetAtMillis,
+                        updatedReport.expiringAtMillis
                     )
                 }
                 reportWithLocation.copy(report = updatedReport)

@@ -137,20 +137,27 @@ object SharedReportData {
                 ?.mapNotNull { it.toLongOrNull() }
                 ?.filter { it > 0 }
                 ?: reportWithLocation.report.negativeFeedbackTimestamps
+            val feedbackConditionMet = prefs.getLong("report_${reportId}_feedback_condition_met", -1L).takeIf { it > 0 }
+            val expiringAt = prefs.getLong("report_${reportId}_expiring_at", -1L).takeIf { it > 0 }
 
             var report = reportWithLocation.report.copy(
                 positiveFeedbackCount = positiveCount,
                 negativeFeedbackCount = negativeCount,
                 negativeFeedbackTimestamps = negativeTimestamps,
                 positive70SustainedSinceMillis = positive70Since,
-                positive40to60SustainedSinceMillis = positive40to60Since
+                positive40to60SustainedSinceMillis = positive40to60Since,
+                feedbackConditionMetAtMillis = feedbackConditionMet,
+                expiringAtMillis = expiringAt
             )
             report = ReportStatusManager.updateValiditySustainedTimestamps(report)
+            report = ReportStatusManager.updateReportStatus(report)
             // 로드 시 새로 설정된 지속 시점이 있으면 저장 (다음 로드 시 3일 누적 가능)
-            if (report.positive70SustainedSinceMillis != positive70Since || report.positive40to60SustainedSinceMillis != positive40to60Since) {
+            if (report.positive70SustainedSinceMillis != positive70Since || report.positive40to60SustainedSinceMillis != positive40to60Since
+                || report.feedbackConditionMetAtMillis != feedbackConditionMet || report.expiringAtMillis != expiringAt) {
                 saveFeedbackToPreferences(
                     context, reportId, positiveCount, negativeCount,
-                    report.positive70SustainedSinceMillis, report.positive40to60SustainedSinceMillis
+                    report.positive70SustainedSinceMillis, report.positive40to60SustainedSinceMillis,
+                    negativeTimestamps, report.feedbackConditionMetAtMillis, report.expiringAtMillis
                 )
             }
             reportWithLocation.copy(report = report)
@@ -158,7 +165,7 @@ object SharedReportData {
     }
     
     /**
-     * 특정 제보의 피드백 카운트, 부정 피드백 시점 목록, 유효성 지속 시점을 SharedPreferences에 저장합니다.
+     * 특정 제보의 피드백 카운트, 부정 피드백 시점 목록, 유효성 지속 시점, EXPIRING 조건 시점을 SharedPreferences에 저장합니다.
      */
     fun saveFeedbackToPreferences(
         context: Context,
@@ -167,7 +174,9 @@ object SharedReportData {
         negativeCount: Int,
         positive70SustainedSinceMillis: Long? = null,
         positive40to60SustainedSinceMillis: Long? = null,
-        negativeFeedbackTimestamps: List<Long>? = null
+        negativeFeedbackTimestamps: List<Long>? = null,
+        feedbackConditionMetAtMillis: Long? = null,
+        expiringAtMillis: Long? = null
     ) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val editor = prefs.edit()
@@ -175,6 +184,16 @@ object SharedReportData {
             .putInt("report_${reportId}_negative", negativeCount)
         positive70SustainedSinceMillis?.let { editor.putLong("report_${reportId}_positive70_since", it) }
         positive40to60SustainedSinceMillis?.let { editor.putLong("report_${reportId}_positive40to60_since", it) }
+        if (feedbackConditionMetAtMillis != null) {
+            editor.putLong("report_${reportId}_feedback_condition_met", feedbackConditionMetAtMillis)
+        } else {
+            editor.remove("report_${reportId}_feedback_condition_met")
+        }
+        if (expiringAtMillis != null) {
+            editor.putLong("report_${reportId}_expiring_at", expiringAtMillis)
+        } else {
+            editor.remove("report_${reportId}_expiring_at")
+        }
         if (negativeFeedbackTimestamps != null) {
             editor.putString("report_${reportId}_negative_timestamps", negativeFeedbackTimestamps.joinToString(","))
         }
