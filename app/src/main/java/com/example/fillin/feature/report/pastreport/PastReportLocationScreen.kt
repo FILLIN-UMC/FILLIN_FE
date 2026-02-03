@@ -1,5 +1,8 @@
 package com.example.fillin.feature.report.pastreport
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.location.Location
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,6 +24,11 @@ import com.example.fillin.feature.report.locationselect.CenterPin
 import com.example.fillin.ui.map.MapContent
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.app.ActivityCompat
+import com.google.android.gms.location.LocationServices
+import com.naver.maps.geometry.LatLng
+import com.naver.maps.map.CameraUpdate
 
 @Composable
 fun PastReportLocationScreen(
@@ -33,12 +41,35 @@ fun PastReportLocationScreen(
     var centerLat by remember { mutableStateOf(37.5665) }
     var centerLon by remember { mutableStateOf(126.9780) }
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+    // [추가] 현재 위치를 가져오기 위한 FusedLocationProviderClient
+    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
         // 1. 지도 영역 (배경)
         MapContent(
             modifier = Modifier.fillMaxSize(),
             onMapReady = { naverMap ->
+                // [추가] 지도가 준비되면 즉시 현재 위치를 파악하여 카메라 이동
+                if (ActivityCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.ACCESS_FINE_LOCATION
+                    ) == PackageManager.PERMISSION_GRANTED
+                ) {
+                    fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
+                        location?.let {
+                            val currentLatLng = LatLng(it.latitude, it.longitude)
+
+                            // 1. 지도 카메라를 현재 위치로 이동
+                            val cameraUpdate = CameraUpdate.scrollTo(currentLatLng)
+                            naverMap.moveCamera(cameraUpdate)
+
+                            // 2. 상태 변수도 현재 위치로 즉시 업데이트 (UI 반응성 향상)
+                            centerLat = it.latitude
+                            centerLon = it.longitude
+                        }
+                    }
+                }
                 // 지도가 멈추면 중앙 좌표의 주소를 가져옴 (역지오코딩)
                 naverMap.addOnCameraIdleListener {
                     val cameraCenter = naverMap.cameraPosition.target
