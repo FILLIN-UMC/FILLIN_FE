@@ -1,13 +1,14 @@
 package com.example.fillin.data.model.auth
 
+import com.google.gson.annotations.SerializedName
+
 /**
- * 회원가입 API 요청 Body
- * API 명세서에 맞게 수정 필요
+ * 테스트 회원가입 API 요청
+ * POST /api/auth/test/signup
  */
 data class SignupRequest(
-    val email: String? = null,
-    val password: String? = null,
-    val nickname: String? = null,
-    val socialType: String? = null,
-    val socialToken: String? = null
+    @SerializedName("nickname") val nickname: String,
+    @SerializedName("email") val email: String,
+    @SerializedName("password") val password: String,
+    @SerializedName("confirmPassword") val confirmPassword: String
 )

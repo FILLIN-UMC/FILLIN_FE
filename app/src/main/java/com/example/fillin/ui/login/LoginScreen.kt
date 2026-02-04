@@ -39,7 +39,7 @@ fun LoginScreen(
     val activity = context.findActivity()
 
     val authViewModel: AuthViewModel = viewModel(
-        factory = AuthViewModelFactory(appPreferences)
+        factory = AuthViewModelFactory(context, appPreferences)
     )
 
     LaunchedEffect(Unit) {
@@ -59,6 +59,12 @@ fun LoginScreen(
                 }
                 AuthNavEvent.GoAfterLoginSplash -> {
                     navController.navigate(Screen.AfterLoginSplash.route) {
+                        popUpTo(Screen.Login.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+                AuthNavEvent.GoOnboarding -> {
+                    navController.navigate(Screen.Onboarding.route) {
                         popUpTo(Screen.Login.route) { inclusive = true }
                         launchSingleTop = true
                     }

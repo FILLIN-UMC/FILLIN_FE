@@ -1469,7 +1469,7 @@ fun SettingsScreen(navController: NavController) {
     val activity = context.findActivity()
     val appPreferences = remember { AppPreferences(context) }
     val authViewModel: AuthViewModel = viewModel(
-        factory = AuthViewModelFactory(appPreferences)
+        factory = AuthViewModelFactory(context, appPreferences)
     )
     val coroutineScope = rememberCoroutineScope()
     

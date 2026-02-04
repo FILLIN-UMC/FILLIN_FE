@@ -8,6 +8,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.fillin.data.AppPreferences
 import com.example.fillin.ui.login.LoginScreen
+import com.example.fillin.ui.onboarding.OnboardingScreen
 import com.example.fillin.ui.permission.PermissionScreen
 import com.example.fillin.ui.splash.AfterLoginSplashScreen
 import com.example.fillin.ui.terms.TermsScreen
@@ -27,6 +28,10 @@ fun NavGraph(startDestination: String) {
     ) {
         composable(Screen.Login.route) {
             LoginScreen(navController = navController, appPreferences = appPreferences)
+        }
+
+        composable(Screen.Onboarding.route) {
+            OnboardingScreen(navController = navController, appPreferences = appPreferences)
         }
 
         composable(Screen.AfterLoginSplash.route) {

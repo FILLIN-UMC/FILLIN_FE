@@ -1,29 +1,37 @@
 package com.example.fillin.data.api
 
+import android.util.Log
 import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 /**
  * FILLIN 백엔드 API용 Retrofit 클라이언트
- * - data.kakao.RetrofitClient: 카카오 지도/주소 API
- * - data.api.RetrofitClient: FILLIN 서버 API (로그인, 회원가입 등)
- *
- * local.properties에 BASE_URL 추가 후 BuildConfig로 주입 가능
+ * Base URL: https://api.fillin.site
  */
 object RetrofitClient {
-    // TODO: API 명세서의 서버 URL로 변경, local.properties + BuildConfig 권장
-    private const val BASE_URL = "https://api.example.com/"
+    private const val BASE_URL = "https://api.fillin.site/"
+    private const val LOG_TAG = "FILLIN_API"
 
     private fun createOkHttpClient(context: android.content.Context): OkHttpClient {
         val appContext = context.applicationContext
-        return OkHttpClient.Builder()
+        val builder = OkHttpClient.Builder()
             .addInterceptor(AuthTokenInterceptor(appContext))
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
-            .build()
+
+        // 디버그: 요청/응답 로깅 (Logcat에서 확인 가능)
+        if (com.example.fillin.BuildConfig.DEBUG) {
+            builder.addInterceptor(
+                HttpLoggingInterceptor { message -> Log.d(LOG_TAG, message) }
+                    .apply { level = HttpLoggingInterceptor.Level.BODY }
+            )
+        }
+
+        return builder.build()
     }
 
     private var retrofit: Retrofit? = null
