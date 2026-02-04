@@ -19,9 +19,7 @@ plugins {
 
 android {
     namespace = "com.example.fillin"
-    compileSdk {
-        version = release(36)
-    }
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.fillin"

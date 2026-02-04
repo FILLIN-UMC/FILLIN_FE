@@ -121,9 +121,16 @@ class AuthViewModel(
                 )
             } catch (t: Throwable) {
                 Log.e("GOOGLE_LOGIN", "Google login failed", t)
-                _navEvents.send(
-                    AuthNavEvent.ShowError(t.message ?: "구글 로그인에 실패했어요.")
-                )
+                val msg = when {
+                    t.message?.contains("No credentials available", ignoreCase = true) == true ->
+                        "이 기기에 Google 계정이 없거나 로그인을 취소했어요.\n설정에서 Google 계정을 추가한 뒤 다시 시도해주세요."
+                    t.message?.contains("Developer console is not set up correctly", ignoreCase = true) == true ->
+                        "Google 로그인 설정이 올바르지 않아요.\nGoogle Cloud Console에서 OAuth 클라이언트 ID와 SHA-1 지문을 확인해주세요."
+                    t.message?.contains("cancel", ignoreCase = true) == true ->
+                        "Google 로그인이 취소되었어요."
+                    else -> t.message ?: "구글 로그인에 실패했어요."
+                }
+                _navEvents.send(AuthNavEvent.ShowError(msg))
             }
 
             _uiState.value = AuthUiState(isLoading = false)
