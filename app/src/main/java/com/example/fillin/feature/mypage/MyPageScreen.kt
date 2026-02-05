@@ -156,7 +156,10 @@ fun MyPageScreen(
     onHideBottomBar: () -> Unit,
     onShowBottomBar: () -> Unit,
     vm: MyPageViewModel = viewModel(
-        factory = MyPageViewModelFactory(appPreferences)
+        factory = MyPageViewModelFactory(
+            context = androidx.compose.ui.platform.LocalContext.current,
+            appPreferences = appPreferences
+        )
     )
 ) {
     // 보이는 상태바(시간/배터리 등)를 위해 밝은 배경 + 어두운 아이콘으로 고정

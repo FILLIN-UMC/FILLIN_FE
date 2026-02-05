@@ -3,7 +3,6 @@ package com.example.fillin.data.repository
 import android.content.Context
 import com.example.fillin.data.api.RetrofitClient
 import com.example.fillin.data.api.TokenManager
-import com.example.fillin.data.model.auth.GoogleAuthRequest
 import com.example.fillin.data.model.auth.LoginRequest
 import com.example.fillin.data.model.auth.LoginResponse
 import com.example.fillin.data.model.auth.OnboardingRequest
@@ -37,8 +36,8 @@ class AuthRepository(private val context: Context) {
         handleSocialAuthResponse(response)
     }
 
-    suspend fun googleLogin(code: String): Result<SocialAuthResponse> = runCatching {
-        userApi.googleLogin(GoogleAuthRequest(code = code))
+    suspend fun googleLogin(idToken: String): Result<SocialAuthResponse> = runCatching {
+        userApi.googleLogin(SocialAuthRequest(socialType = "GOOGLE", accessToken = idToken))
     }.onSuccess { response ->
         handleSocialAuthResponse(response)
     }

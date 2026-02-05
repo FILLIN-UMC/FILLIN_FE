@@ -1,7 +1,6 @@
 package com.example.fillin.data.api
 
 import com.example.fillin.data.model.auth.ApiResponse
-import com.example.fillin.data.model.auth.GoogleAuthRequest
 import com.example.fillin.data.model.auth.LoginRequest
 import com.example.fillin.data.model.auth.LoginResponse
 import com.example.fillin.data.model.auth.OnboardingRequest
@@ -21,18 +20,18 @@ import retrofit2.http.POST
 interface UserApiService {
 
     // ---- 테스트용 ----
-    @POST("api/auth/test/signup")
+    @POST("api/v1/auth/test/signup")
     suspend fun testSignup(@Body request: SignupRequest): SignupResponse
 
-    @POST("api/auth/test/login")
+    @POST("api/v1/auth/test/login")
     suspend fun testLogin(@Body request: LoginRequest): LoginResponse
 
-    // ---- 소셜 로그인 ----
+    // ---- 소셜 로그인 (백엔드 OAuthController: /api/auth) ----
     @POST("api/auth/kakao/login")
     suspend fun kakaoLogin(@Body request: SocialAuthRequest): SocialAuthResponse
 
-    @POST("api/auth/google/android/login")
-    suspend fun googleLogin(@Body request: GoogleAuthRequest): SocialAuthResponse
+    @POST("api/auth/google/login")
+    suspend fun googleLogin(@Body request: SocialAuthRequest): SocialAuthResponse
 
     // ---- 온보딩 ----
     @POST("api/auth/onboarding")

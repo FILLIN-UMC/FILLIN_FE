@@ -76,8 +76,14 @@ class AuthViewModel(
                     }
                 },
                 onFailure = { e ->
+                    Log.e("KAKAO_LOGIN", "API failed: ${e.javaClass.simpleName}", e)
+                    if (e is HttpException) Log.e("KAKAO_LOGIN", "HTTP ${e.code()}")
                     val msg = when (e) {
-                        is HttpException -> ApiErrorParser.getMessage(e, "카카오 로그인에 실패했어요.")
+                        is HttpException -> when (e.code()) {
+                            403 -> ApiErrorParser.getMessage(e, "카카오 로그인 접근이 거부되었어요.")
+                            404 -> "카카오 로그인 API를 찾을 수 없어요."
+                            else -> ApiErrorParser.getMessage(e, "카카오 로그인에 실패했어요.")
+                        }
                         else -> e.message ?: "카카오 로그인에 실패했어요."
                     }
                     _navEvents.send(AuthNavEvent.ShowError(msg))
@@ -99,6 +105,10 @@ class AuthViewModel(
                     webClientId = webClientId
                 )
                 Log.d("GOOGLE_LOGIN", "Google idToken length=${idToken.length}")
+                // 토큰 검증: Logcat에서 복사 후 터미널에서 curl "https://oauth2.googleapis.com/tokeninfo?id_token=토큰" 실행
+                if (com.example.fillin.BuildConfig.DEBUG) {
+                    Log.d("GOOGLE_LOGIN", "idToken for verification: $idToken")
+                }
 
                 val result = authRepository.googleLogin(idToken)
                 result.fold(
@@ -112,15 +122,21 @@ class AuthViewModel(
                         }
                     },
                     onFailure = { e ->
+                        Log.e("GOOGLE_LOGIN", "API failed: ${e.javaClass.simpleName}", e)
+                        if (e is HttpException) Log.e("GOOGLE_LOGIN", "HTTP ${e.code()}")
                         val msg = when (e) {
-                            is HttpException -> ApiErrorParser.getMessage(e, "구글 로그인에 실패했어요.")
-                            else -> e.message ?: "구글 로그인에 실패했어요."
+                            is HttpException -> when (e.code()) {
+                                404 -> "구글 로그인 API를 찾을 수 없어요.\n서버 엔드포인트가 배포되었는지 확인해주세요."
+                                403 -> ApiErrorParser.getMessage(e, "구글 로그인 접근이 거부되었어요.")
+                                else -> ApiErrorParser.getMessage(e, "구글 로그인에 실패했어요.")
+                            }
+                            else -> e.message?.takeIf { it.isNotBlank() } ?: "구글 로그인에 실패했어요."
                         }
                         _navEvents.send(AuthNavEvent.ShowError(msg))
                     }
                 )
             } catch (t: Throwable) {
-                Log.e("GOOGLE_LOGIN", "Google login failed", t)
+                Log.e("GOOGLE_LOGIN", "Google login failed: ${t.javaClass.simpleName}, msg=${t.message}", t)
                 val msg = when {
                     t.message?.contains("No credentials available", ignoreCase = true) == true ->
                         "이 기기에 Google 계정이 없거나 로그인을 취소했어요.\n설정에서 Google 계정을 추가한 뒤 다시 시도해주세요."
@@ -128,7 +144,14 @@ class AuthViewModel(
                         "Google 로그인 설정이 올바르지 않아요.\nGoogle Cloud Console에서 OAuth 클라이언트 ID와 SHA-1 지문을 확인해주세요."
                     t.message?.contains("cancel", ignoreCase = true) == true ->
                         "Google 로그인이 취소되었어요."
-                    else -> t.message ?: "구글 로그인에 실패했어요."
+                    t.message?.contains("access_denied", ignoreCase = true) == true ->
+                        "Google 로그인 접근이 거부되었어요.\n테스트 사용자에 추가되었는지 확인해주세요."
+                    t.message?.contains("DeveloperError", ignoreCase = true) == true ||
+                    t.message?.contains("DEVELOPER_ERROR", ignoreCase = true) == true ->
+                        "앱 설정 오류가 있어요.\n앱이 테스트 사용자에 추가되었는지 확인해주세요."
+                    t.message?.contains("invalid_grant", ignoreCase = true) == true ->
+                        "Google 계정 인증에 실패했어요.\n테스트 사용자에 이 계정이 추가되었는지 확인해주세요."
+                    else -> t.message?.takeIf { it.isNotBlank() } ?: "구글 로그인에 실패했어요."
                 }
                 _navEvents.send(AuthNavEvent.ShowError(msg))
             }

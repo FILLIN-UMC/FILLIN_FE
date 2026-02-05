@@ -1,21 +1,26 @@
 package com.example.fillin.feature.mypage
 
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
 import com.example.fillin.data.AppPreferences
 import com.example.fillin.data.ReportStatusManager
 import com.example.fillin.data.SharedReportData
+import com.example.fillin.data.api.TokenManager
+import com.example.fillin.data.repository.MypageRepository
 import com.example.fillin.domain.model.ReportStatus
 import com.example.fillin.domain.model.ReportType
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 class MyPageViewModel(
-    private val appPreferences: AppPreferences
+    private val appPreferences: AppPreferences,
+    private val mypageRepository: MypageRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<MyPageUiState>(MyPageUiState.Loading)
@@ -23,7 +28,6 @@ class MyPageViewModel(
 
     init {
         load(null)
-        // 닉네임 변경 감지
         appPreferences.nicknameFlow
             .onEach { newNickname ->
                 updateNickname(newNickname)
@@ -32,14 +36,129 @@ class MyPageViewModel(
     }
 
     fun load(context: Context? = null) {
-        // SharedReportData에서 제보 데이터 가져오기 + 상태 반영 (EXPIRING/EXPIRED)
-        // context 제공 시 완전 삭제한 제보 제외하여 총 제보 수 반영
+        viewModelScope.launch {
+            val ctx = context
+            val hasToken = ctx != null && TokenManager.isLoggedIn(ctx)
+
+            if (hasToken) {
+                loadFromApi(ctx!!)
+            } else {
+                loadFromLocal(ctx)
+            }
+        }
+    }
+
+    private suspend fun loadFromApi(context: Context) {
+        _uiState.value = MyPageUiState.Loading
+
+        val profileResult = mypageRepository.getProfile()
+        val countResult = mypageRepository.getReportCount()
+        val categoryResult = mypageRepository.getReportCategory()
+        val reportsResult = mypageRepository.getMyReports()
+        val expireSoonResult = mypageRepository.getReportExpireSoon()
+
+        if (profileResult.isFailure || countResult.isFailure || reportsResult.isFailure) {
+            Log.w("MyPageViewModel", "API failed, fallback to local", profileResult.exceptionOrNull() ?: countResult.exceptionOrNull() ?: reportsResult.exceptionOrNull())
+            loadFromLocal(context)
+            return
+        }
+
+        val profile = profileResult.getOrNull()?.data
+        val count = countResult.getOrNull()?.data
+        val category = categoryResult.getOrNull()?.data
+        val reports = reportsResult.getOrNull()?.data ?: emptyList()
+        val expireSoon = expireSoonResult.getOrNull()?.data
+
+        if (profile != null) {
+            appPreferences.setNickname(profile.nickname ?: appPreferences.getNickname())
+            profile.profileImageUrl?.let { url ->
+                appPreferences.setProfileImageUri(url)
+            }
+        }
+
+        val totalReports = count?.totalReportCount ?: 0
+        val totalViews = count?.totalViewCount ?: 0
+        val dangerCount = category?.dangerCount ?: 0
+        val inconvenienceCount = category?.inconvenienceCount ?: 0
+        val discoveryCount = category?.discoveryCount ?: 0
+
+        val summary = MyPageSummary(
+            nickname = profile?.nickname ?: appPreferences.getNickname(),
+            totalReports = totalReports,
+            totalViews = totalViews,
+            danger = dangerCount to 5,
+            inconvenience = inconvenienceCount to 5,
+            discoveryCount = discoveryCount
+        )
+
+        val reportCards = reports.map { item ->
+            MyReportCard(
+                id = item.reportId ?: 0L,
+                title = item.title ?: "",
+                meta = item.address ?: "",
+                imageResId = null,
+                imageUrl = item.reportImageUrl,
+                viewCount = item.viewCount
+            )
+        }
+
+        val expiringNoticeList = buildExpiringNoticeList(expireSoon)
+
+        _uiState.value = MyPageUiState.Success(summary, reportCards, expiringNoticeList)
+    }
+
+    private fun buildExpiringNoticeList(expireSoon: com.example.fillin.data.model.mypage.ReportExpireSoonData?): List<ExpiringReportNotice> {
+        val listDtos = expireSoon?.listDtos ?: return emptyList()
+        if (listDtos.isEmpty()) return emptyList()
+
+        val threeDaysMillis = 3 * 24 * 60 * 60 * 1000L
+        val oneDayMillis = 24 * 60 * 60 * 1000L
+        val now = System.currentTimeMillis()
+
+        val groupedByDaysLeft = listDtos.groupBy { item ->
+            val expireTimeStr = item.expireTime ?: return@groupBy 0
+            val expireMillis = try {
+                java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                    .parse(expireTimeStr)?.time
+                    ?: java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US)
+                        .parse(expireTimeStr)?.time
+                    ?: (now + oneDayMillis)
+            } catch (_: Exception) {
+                now + oneDayMillis
+            }
+            ((expireMillis + threeDaysMillis - now) / oneDayMillis).toInt().coerceAtLeast(0)
+        }
+
+        return groupedByDaysLeft.keys.sortedDescending().map { daysLeft ->
+            val groupItems = groupedByDaysLeft[daysLeft] ?: emptyList()
+            val d = groupItems.count { it.reportCategory == "DANGER" }
+            val i = groupItems.count { it.reportCategory == "INCONVENIENCE" }
+            val s = groupItems.count { it.reportCategory == "DISCOVERY" }
+            val parts = buildList {
+                if (d > 0) add("위험 $d")
+                if (i > 0) add("불편 $i")
+                if (s > 0) add("발견 $s")
+            }
+            val reportImages = groupItems.take(3).map { item ->
+                ExpiringReportImage(
+                    imageUrl = item.reportImageUrl,
+                    imageResId = null
+                )
+            }
+            ExpiringReportNotice(
+                daysLeft = daysLeft,
+                summaryText = parts.joinToString(", "),
+                reportImages = reportImages
+            )
+        }
+    }
+
+    private fun loadFromLocal(context: Context?) {
         val userReports = SharedReportData.getUserReports(context)
         val updatedUserReports = userReports.map { rwl ->
             rwl.copy(report = ReportStatusManager.updateReportStatus(rwl.report))
         }
 
-        // 제보 통계 계산 (업데이트된 리스트 기준)
         val totalReports = updatedUserReports.size
         val totalViews = updatedUserReports.sumOf { it.report.viewCount }
         val dangerCount = updatedUserReports.count { it.report.type == ReportType.DANGER }
@@ -55,7 +174,6 @@ class MyPageViewModel(
             discoveryCount = discoveryCount
         )
 
-        // 제보 데이터를 MyReportCard로 변환
         val reports = updatedUserReports.map { reportWithLocation ->
             MyReportCard(
                 id = reportWithLocation.report.id,
@@ -67,7 +185,6 @@ class MyPageViewModel(
             )
         }
 
-        // EXPIRING 제보를 daysLeft별 그룹화, 남은 기간 많은 순 (3일→2일→1일 순으로 알림 표시)
         val expiringReports = updatedUserReports.filter { it.report.status == ReportStatus.EXPIRING }
         val threeDaysMillis = 3 * 24 * 60 * 60 * 1000L
         val oneDayMillis = 24 * 60 * 60 * 1000L
@@ -78,7 +195,6 @@ class MyPageViewModel(
                 ((expiringAt + threeDaysMillis - now) / oneDayMillis).toInt().coerceAtLeast(0)
             }
             groupedByDaysLeft.keys.sortedDescending().map { daysLeft ->
-                // 같은 날 사라지는 제보: 등록일 오래된 순(먼저 등록된 것) → 왼쪽 이미지부터 표시
                 val groupReports = (groupedByDaysLeft[daysLeft] ?: emptyList())
                     .sortedWith(compareBy({ it.report.createdAtMillis }, { it.report.id }))
                 val parts = buildList {
@@ -89,7 +205,6 @@ class MyPageViewModel(
                     if (i > 0) add("불편 $i")
                     if (s > 0) add("발견 $s")
                 }
-                // 3개 이상: 등록일 오래된 순 3개만 / 2개: 2개 / 1개: 1개
                 val reportImages = groupReports.take(3).map { rwl ->
                     ExpiringReportImage(
                         imageUrl = rwl.report.imageUrl,
