@@ -252,6 +252,7 @@ fun HomeScreen(
 
     // 샘플 제보 데이터 (마이그레이션 완료 시 사용 안 함)
     var updatedSampleReports by remember { mutableStateOf(emptyList<ReportWithLocation>()) }
+    var reportListVersion by remember { mutableStateOf(0) } // 업로드 시 마커 갱신 강제
 
     // [수정] 본인의 저장소(savedStateHandle)에서 "report_flow"를 실시간 관찰하는 상태 생성
     val reportFlowState = navController?.currentBackStackEntry
@@ -432,12 +433,13 @@ fun HomeScreen(
     }
 
     // === [백엔드 API에서만 제보 로드] ===
+    // uploadStatus 제외: 업로드 직후 API 재요청 시 새 제보가 덮어쓰여지는 레이스 컨디션 방지
     LaunchedEffect(Unit, userDeletedFromRegistered) {
         val defaultLat = 37.5665
         val defaultLon = 126.9780
         val userDeletedIds = SharedReportData.loadUserDeletedFromRegisteredIds(context)
 
-        val reports = if (TokenManager.getBearerToken(context) != null) {
+        var reports = if (TokenManager.getBearerToken(context) != null) {
             // 로그인: 내 제보만
             mypageRepository.getMyReports().getOrNull()?.data?.mapNotNull { item ->
                 val reportId = item.reportId ?: return@mapNotNull null
@@ -497,12 +499,20 @@ fun HomeScreen(
             } ?: emptyList()
         }
 
+        // API에서 제보가 없으면 샘플 데이터로 폴백 (개발/데모용)
+        if (reports.isEmpty()) {
+            reports = SampleReportData.getSampleReports()
+        }
+
         val reportsWithExpired = reports.map { rwl ->
             if (rwl.report.id in userDeletedIds) {
                 rwl.copy(report = rwl.report.copy(status = ReportStatus.EXPIRED))
             } else rwl
         }
-        updatedSampleReports = reportsWithExpired
+        // API 응답으로 덮어쓸 때, 업로드 LaunchedEffect에서 추가한 제보는 보존 (레이스 컨디션 방지)
+        val apiIds = reportsWithExpired.map { it.report.id }.toSet()
+        val locallyAdded = updatedSampleReports.filter { it.report.id !in apiIds }
+        updatedSampleReports = reportsWithExpired + locallyAdded
     }
 
     // === [업로드 결과 관찰 및 알림 처리 + 지도에 새 제보 추가] ===
@@ -539,10 +549,13 @@ fun HomeScreen(
                     longitude = lon
                 )
                 updatedSampleReports = updatedSampleReports + newWithLocation
+                reportListVersion++
+                Log.d("HomeScreen", "새 제보 추가됨: id=$newId, lat=$lat, lon=$lon, total=${updatedSampleReports.size}")
             }
             Toast.makeText(context, "제보가 성공적으로 등록되었습니다!", Toast.LENGTH_SHORT).show()
             capturedUri = null
             geminiViewModel.clearResult()
+            delay(100) // 상태 업데이트가 마커 LaunchedEffect에 반영되도록 대기
             reportViewModel.resetStatus()
         } else if (reportViewModel.uploadStatus == false) {
             Toast.makeText(context, "등록에 실패했습니다. 다시 시도해주세요.", Toast.LENGTH_SHORT).show()
@@ -1037,7 +1050,7 @@ fun HomeScreen(
     val markerIconCache = remember { mutableMapOf<String, OverlayImage>() }
     
     // 지도 마커 표시 (줌 레벨에 따라 개별 마커 또는 클러스터 마커)
-    LaunchedEffect(naverMap, updatedSampleReports, selectedCategories, cameraZoomLevel, userDeletedFromRegistered, permanentlyDeleted) {
+    LaunchedEffect(naverMap, updatedSampleReports, reportListVersion, selectedCategories, cameraZoomLevel, userDeletedFromRegistered, permanentlyDeleted) {
         naverMap?.let { naverMapInstance ->
             // ACTIVE 상태인 제보만 필터링 (나의 제보에서 삭제한 제보, 완전 삭제한 제보는 지도에 표시 안 함)
             val activeReports = updatedSampleReports.filter {
@@ -1314,12 +1327,10 @@ fun HomeScreen(
                 initialLocation = finalLocation.ifEmpty { currentAddress },
                 onLocationFieldClick = { isMapPickingMode = true },
                 onDismiss = { geminiViewModel.clearResult() },
-                onRegister = { category, title, location ->
-                    capturedUri?.let { uri ->
-                        val lat = currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
-                        val lon = currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
-                        reportViewModel.uploadReport(category, title, location, uri, lat, lon)
-                    }
+                onRegister = { category, title, location, uri ->
+                    val lat = currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
+                    val lon = currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
+                    reportViewModel.uploadReport(category, title, location, uri, lat, lon)
                 }
             )
         }
@@ -1443,13 +1454,11 @@ fun HomeScreen(
                     capturedUri = null
                     geminiViewModel.clearResult()
                 },
-                onRegister = { category, title, location ->
-                    capturedUri?.let { uri ->
-                        // 지난 상황 제보: 사용자가 선택한 위치 좌표 사용 (위치 설정 화면에서 선택한 곳)
-                        val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
-                        val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
-                        reportViewModel.uploadReport(category, title, location, uri, lat, lon)
-                    }
+                onRegister = { category, title, location, uri ->
+                    // 지난 상황 제보: 사용자가 선택한 위치 좌표 사용 (위치 설정 화면에서 선택한 곳)
+                    val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
+                    val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
+                    reportViewModel.uploadReport(category, title, location, uri, lat, lon)
                 }
             )
         }

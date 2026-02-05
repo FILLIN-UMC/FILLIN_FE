@@ -99,6 +99,21 @@ class MypageRepository(private val context: Context) {
         api.deleteReport(reportId)
     }
 
+    /**
+     * 현재 사용자가 등록한 모든 제보를 사라진 제보로 이동 (백엔드 API)
+     * @return 삭제된 제보 개수, 실패 시 null
+     */
+    suspend fun deleteAllMyReports(): Int? = runCatching {
+        val reports = api.getMyReports().data ?: return@runCatching 0
+        var count = 0
+        reports.forEach { item ->
+            item.reportId?.let { reportId ->
+                runCatching { api.deleteReport(reportId) }.onSuccess { count++ }
+            }
+        }
+        count
+    }.getOrNull()
+
     suspend fun getLikedReports() = runCatching {
         api.getLikedReports()
     }

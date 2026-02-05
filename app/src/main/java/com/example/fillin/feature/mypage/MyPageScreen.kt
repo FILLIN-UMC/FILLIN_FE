@@ -52,6 +52,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -61,6 +62,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.text.PlatformTextStyle
@@ -115,6 +117,8 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import com.example.fillin.data.AppPreferences
 import com.example.fillin.data.SharedReportData
+import com.example.fillin.data.api.TokenManager
+import com.example.fillin.data.repository.MypageRepository
 import com.example.fillin.ui.login.AuthViewModel
 import com.example.fillin.ui.login.AuthViewModelFactory
 import com.example.fillin.ui.login.AuthNavEvent
@@ -123,6 +127,7 @@ import kotlinx.coroutines.flow.collectLatest
 import android.content.ContextWrapper
 import android.content.Intent
 import android.provider.Settings
+import android.widget.Toast
 import com.example.fillin.MainActivity
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
@@ -1474,9 +1479,13 @@ fun SettingsScreen(navController: NavController) {
     val authViewModel: AuthViewModel = viewModel(
         factory = AuthViewModelFactory(context, appPreferences)
     )
+    val mypageRepository = remember(context) { MypageRepository(context) }
     val coroutineScope = rememberCoroutineScope()
+    val isLoggedIn = TokenManager.getBearerToken(context) != null
     
     var reportNoti by rememberSaveable { mutableStateOf(true) }
+    var showDeleteAllReportsDialog by remember { mutableStateOf(false) }
+    var isDeletingReports by remember { mutableStateOf(false) }
     var feedbackNoti by rememberSaveable { mutableStateOf(true) }
     var serviceNoti by rememberSaveable { mutableStateOf(true) }
 
@@ -1591,6 +1600,25 @@ fun SettingsScreen(navController: NavController) {
             HorizontalDivider(color = Color(0xFFE7EBF2), thickness = 1.dp)
             Spacer(Modifier.height(32.dp))
 
+            // 로그인 시에만 표시: 등록한 제보 모두 삭제
+            if (isLoggedIn) {
+                Text(
+                    text = "데이터 관리",
+                    color = Color(0xFFAAADB3),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    lineHeight = 14.sp
+                )
+                Spacer(Modifier.height(16.dp))
+                SettingLinkRow(
+                    title = "등록한 제보 모두 삭제",
+                    onClick = { showDeleteAllReportsDialog = true }
+                )
+                Spacer(Modifier.height(32.dp))
+                HorizontalDivider(color = Color(0xFFE7EBF2), thickness = 1.dp)
+                Spacer(Modifier.height(32.dp))
+            }
+
             Text(
                 text = "로그아웃",
                 fontWeight = FontWeight.SemiBold,
@@ -1624,6 +1652,42 @@ fun SettingsScreen(navController: NavController) {
 
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    // 등록한 제보 모두 삭제 확인 다이얼로그
+    if (showDeleteAllReportsDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!isDeletingReports) showDeleteAllReportsDialog = false },
+            title = { Text("등록한 제보 모두 삭제") },
+            text = {
+                Text("내가 등록한 모든 제보가 사라진 제보로 이동합니다. 계속하시겠습니까?")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            isDeletingReports = true
+                            val count = mypageRepository.deleteAllMyReports()
+                            isDeletingReports = false
+                            showDeleteAllReportsDialog = false
+                            Toast.makeText(
+                                context,
+                                if (count != null) "${count}개의 제보가 삭제되었습니다." else "삭제에 실패했습니다.",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))
+                ) {
+                    Text("삭제")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteAllReportsDialog = false }) {
+                    Text("취소", color = Color(0xFF4595E5))
+                }
+            }
+        )
     }
 }
 

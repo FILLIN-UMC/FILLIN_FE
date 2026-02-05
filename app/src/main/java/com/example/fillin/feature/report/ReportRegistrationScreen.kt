@@ -35,7 +35,7 @@ fun ReportRegistrationScreen(
     initialLocation: String,
     onLocationFieldClick: () -> Unit, // [추가] 장소 필드 클릭 시 실행할 함수
     onDismiss: () -> Unit,
-    onRegister: (String, String, String) -> Unit // 카테고리, 제목, 장소 전달
+    onRegister: (String, String, String, Uri) -> Unit // 카테고리, 제목, 장소, 이미지 Uri 전달
 ) {
     var selectedCategory by remember { mutableStateOf("위험") }
     var title by remember { mutableStateOf(initialTitle) }
@@ -169,7 +169,7 @@ fun ReportRegistrationScreen(
                 color = Color.Gray
             )
             Button(
-                onClick = { onRegister(selectedCategory, title, location) },
+                onClick = { imageUri?.let { uri -> onRegister(selectedCategory, title, location, uri) } },
                 modifier = Modifier.fillMaxWidth().height(56.dp).padding(bottom = 12.dp),
                 enabled = isFormValid, // [핵심] 유효성 검사 결과 연결
                 colors = ButtonDefaults.buttonColors(
