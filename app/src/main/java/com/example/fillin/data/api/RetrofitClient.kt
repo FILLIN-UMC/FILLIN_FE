@@ -51,4 +51,7 @@ object RetrofitClient {
 
     fun getMypageApi(context: android.content.Context): MypageApiService =
         getRetrofit(context).create(MypageApiService::class.java)
+
+    fun getReportApi(context: android.content.Context): ReportApiService =
+        getRetrofit(context).create(ReportApiService::class.java)
 }

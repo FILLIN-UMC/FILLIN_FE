@@ -1,5 +1,6 @@
 package com.example.fillin.ui.components
 
+import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -38,6 +39,7 @@ data class ReportCardUi(
     val validityStatus: ValidityStatus, // 유효성 상태
     val imageRes: Int,
     val imageUrl: String? = null, // URL 이미지 (등록 제보 등)
+    val imageUri: Uri? = null, // 로컬 이미지 (API 등록 직후 배너 표시용)
     val views: Int,
     val typeLabel: String,
     val typeColor: Color,
@@ -113,20 +115,31 @@ fun ReportCard(
                     .aspectRatio(1f)
                     .clip(RoundedCornerShape(16.dp))
             ) {
-                if (!report.imageUrl.isNullOrBlank()) {
-                    coil.compose.AsyncImage(
-                        model = report.imageUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Image(
-                        painter = painterResource(id = report.imageRes),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                when {
+                    report.imageUri != null -> {
+                        coil.compose.AsyncImage(
+                            model = report.imageUri,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    !report.imageUrl.isNullOrBlank() -> {
+                        coil.compose.AsyncImage(
+                            model = report.imageUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    else -> {
+                        Image(
+                            painter = painterResource(id = report.imageRes),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
 
                 // top dark overlay

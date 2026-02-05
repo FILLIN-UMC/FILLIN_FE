@@ -6,11 +6,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.fillin.data.db.FirestoreRepository
 import com.example.fillin.data.db.UploadedReportResult
+import com.example.fillin.data.repository.ReportRepository
 import kotlinx.coroutines.launch
 
-class ReportViewModel(private val repository: FirestoreRepository) : ViewModel() {
+class ReportViewModel(private val repository: ReportRepository) : ViewModel() {
 
     var isUploading by mutableStateOf(false)
         private set

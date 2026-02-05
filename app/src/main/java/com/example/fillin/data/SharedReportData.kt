@@ -16,7 +16,21 @@ object SharedReportData {
     private const val PREFS_NAME = "fillin_report_feedback"
     
     private const val KEY_SAMPLE_DATA_MIGRATED = "sample_data_migrated"
-    
+    private const val KEY_SAMPLE_REPORT_DOCUMENT_IDS = "sample_report_firestore_document_ids"
+
+    /** 샘플 제보의 Firestore documentId 목록 (백엔드 마이그레이션 시 제외용) */
+    fun getSampleReportDocumentIds(context: Context): Set<String> {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getStringSet(KEY_SAMPLE_REPORT_DOCUMENT_IDS, null) ?: emptySet()
+    }
+
+    fun setSampleReportDocumentIds(context: Context, ids: Set<String>) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putStringSet(KEY_SAMPLE_REPORT_DOCUMENT_IDS, ids)
+            .apply()
+    }
+
     fun isSampleDataMigrated(context: Context): Boolean {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getBoolean(KEY_SAMPLE_DATA_MIGRATED, false)

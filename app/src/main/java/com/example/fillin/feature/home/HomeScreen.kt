@@ -68,6 +68,10 @@ import com.example.fillin.data.SampleReportData
 import com.example.fillin.data.SharedReportData
 import com.example.fillin.data.db.ReportDocument
 import com.example.fillin.data.db.UploadedReportResult
+import com.example.fillin.data.api.TokenManager
+import com.example.fillin.data.model.mypage.MyReportItem
+import com.example.fillin.data.repository.MypageRepository
+import com.example.fillin.data.repository.ReportRepository
 import com.example.fillin.domain.model.Report
 import com.example.fillin.domain.model.ReportType
 import com.example.fillin.domain.model.ReportStatus
@@ -180,8 +184,9 @@ fun HomeScreen(
     val apiService = remember { RetrofitClient.geminiApi }
     val geminiRepository = remember { GeminiRepository(apiService) }
     val geminiViewModel: GeminiViewModel = viewModel(factory = GeminiViewModelFactory(geminiRepository))
-    val firestoreRepository = remember { com.example.fillin.data.db.FirestoreRepository() }
-    val reportViewModel: ReportViewModel = viewModel(factory = ReportViewModelFactory(firestoreRepository))
+    val mypageRepository = remember(context) { MypageRepository(context) }
+    val reportRepository = remember(context) { ReportRepository(context) }
+    val reportViewModel: ReportViewModel = viewModel(factory = ReportViewModelFactory(reportRepository))
     val scope = rememberCoroutineScope()
     
     // === [권한 Launcher] ===
@@ -246,21 +251,7 @@ fun HomeScreen(
     var lastSelectedReportId by remember(backStackEntry) { mutableStateOf<Long?>(null) }
 
     // 샘플 제보 데이터 (마이그레이션 완료 시 사용 안 함)
-    val sampleDataMigrated = remember(context) { SharedReportData.isSampleDataMigrated(context) }
-    val sampleReports = remember(sampleDataMigrated) {
-        if (sampleDataMigrated) emptyList() else SampleReportData.getSampleReports()
-    }
-    val sampleReportsWithFeedback = remember(context, sampleReports, userDeletedFromRegistered) {
-        SharedReportData.loadFeedbackFromPreferences(context, sampleReports)
-    }
-    var updatedSampleReports by remember(sampleReportsWithFeedback) {
-        mutableStateOf(
-            sampleReportsWithFeedback.map { reportWithLocation ->
-                val updatedReport = ReportStatusManager.updateReportStatus(reportWithLocation.report)
-                reportWithLocation.copy(report = updatedReport)
-            }
-        )
-    }
+    var updatedSampleReports by remember { mutableStateOf(emptyList<ReportWithLocation>()) }
 
     // [수정] 본인의 저장소(savedStateHandle)에서 "report_flow"를 실시간 관찰하는 상태 생성
     val reportFlowState = navController?.currentBackStackEntry
@@ -440,73 +431,78 @@ fun HomeScreen(
         SharedReportData.setReports(updatedSampleReports.filter { it.report.id !in permanentlyDeleted })
     }
 
-    // === [샘플 데이터 마이그레이션 + Firestore 제보 로드] ===
+    // === [백엔드 API에서만 제보 로드] ===
     LaunchedEffect(Unit, userDeletedFromRegistered) {
-        // 1. 마이그레이션 미완료 시 샘플 제보를 Firebase Storage + Firestore로 이전
-        if (!SharedReportData.isSampleDataMigrated(context)) {
-            firestoreRepository.migrateSampleReportsToFirebase(context)
-                .onSuccess { count ->
-                    SharedReportData.setSampleDataMigrated(context, true)
-                    Toast.makeText(context, "샘플 제보 ${count}개를 Firebase로 이전했습니다.", Toast.LENGTH_LONG).show()
-                }
-                .onFailure { e ->
-                    Toast.makeText(context, "마이그레이션 실패: ${e.message}", Toast.LENGTH_LONG).show()
-                }
-        }
-        // 2. Firestore에서 제보 로드
-        val fromFirestore = firestoreRepository.getReports()
         val defaultLat = 37.5665
         val defaultLon = 126.9780
-        val firestoreReports = fromFirestore.map { doc ->
-            val d = doc.data
-            val reportType = when (d.category) {
-                "위험" -> ReportType.DANGER
-                "불편" -> ReportType.INCONVENIENCE
-                else -> ReportType.DISCOVERY
-            }
-            val lat = if (d.latitude != 0.0 || d.longitude != 0.0) d.latitude else defaultLat
-            val lon = if (d.latitude != 0.0 || d.longitude != 0.0) d.longitude else defaultLon
-            val negativeTimestamps = d.negativeFeedbackTimestamps?.mapNotNull { (it as? Number)?.toLong()?.takeIf { t -> t > 0 } } ?: emptyList()
-            var report = Report(
-                id = doc.documentId.hashCode().toLong().and(0x7FFFFFFFL).coerceAtLeast(10000L),
-                documentId = doc.documentId,
-                title = d.location,
-                meta = d.title,
-                type = reportType,
-                viewCount = d.viewCount,
-                status = ReportStatus.ACTIVE,
-                imageUrl = d.imageUrl,
-                createdAtMillis = d.timestamp.toDate().time,
-                positiveFeedbackCount = d.positiveFeedbackCount,
-                negativeFeedbackCount = d.negativeFeedbackCount,
-                negativeFeedbackTimestamps = negativeTimestamps,
-                positive70SustainedSinceMillis = d.positive70SustainedSinceMillis,
-                positive40to60SustainedSinceMillis = d.positive40to60SustainedSinceMillis,
-                feedbackConditionMetAtMillis = d.feedbackConditionMetAtMillis,
-                expiringAtMillis = d.expiringAtMillis,
-                isUserOwned = true,
-                isSaved = d.likedByUserIds?.contains("guest_user") ?: false,
-                reporterInfo = SampleReportData.currentUser
-            )
-            report = ReportStatusManager.updateReportStatus(report)
-            ReportWithLocation(report = report, latitude = lat, longitude = lon)
-        }
-        // 나의 제보에서 삭제한 제보는 EXPIRED로 적용
         val userDeletedIds = SharedReportData.loadUserDeletedFromRegisteredIds(context)
-        val firestoreReportsWithExpired = firestoreReports.map { rwl ->
+
+        val reports = if (TokenManager.getBearerToken(context) != null) {
+            // 로그인: 내 제보만
+            mypageRepository.getMyReports().getOrNull()?.data?.mapNotNull { item ->
+                val reportId = item.reportId ?: return@mapNotNull null
+                val lat = item.latitude ?: defaultLat
+                val lon = item.longitude ?: defaultLon
+                val reportType = when (item.reportCategory) {
+                    "DANGER" -> ReportType.DANGER
+                    "INCONVENIENCE" -> ReportType.INCONVENIENCE
+                    "DISCOVERY" -> ReportType.DISCOVERY
+                    else -> ReportType.DISCOVERY
+                }
+                ReportWithLocation(
+                    report = Report(
+                        id = reportId,
+                        documentId = reportId.toString(),
+                        title = item.address ?: "",
+                        meta = item.title ?: "",
+                        type = reportType,
+                        viewCount = item.viewCount,
+                        status = ReportStatus.ACTIVE,
+                        imageUrl = item.reportImageUrl,
+                        isUserOwned = true,
+                        reporterInfo = SampleReportData.currentUser
+                    ),
+                    latitude = lat,
+                    longitude = lon
+                )
+            } ?: emptyList()
+        } else {
+            // 비로그인: 인기 제보 (최대 6개)
+            reportRepository.getPopularReports().getOrNull()?.data?.popularReports?.mapNotNull { item ->
+                val reportId = item.id ?: return@mapNotNull null
+                val lat = item.latitude ?: defaultLat
+                val lon = item.longitude ?: defaultLon
+                val reportType = when (item.category) {
+                    "DANGER" -> ReportType.DANGER
+                    "INCONVENIENCE" -> ReportType.INCONVENIENCE
+                    "DISCOVERY" -> ReportType.DISCOVERY
+                    else -> ReportType.DISCOVERY
+                }
+                ReportWithLocation(
+                    report = Report(
+                        id = reportId,
+                        documentId = reportId.toString(),
+                        title = item.address ?: "",
+                        meta = item.title ?: "",
+                        type = reportType,
+                        viewCount = item.viewCount,
+                        status = ReportStatus.ACTIVE,
+                        imageUrl = null,
+                        isUserOwned = false,
+                        reporterInfo = null
+                    ),
+                    latitude = lat,
+                    longitude = lon
+                )
+            } ?: emptyList()
+        }
+
+        val reportsWithExpired = reports.map { rwl ->
             if (rwl.report.id in userDeletedIds) {
                 rwl.copy(report = rwl.report.copy(status = ReportStatus.EXPIRED))
             } else rwl
         }
-        val initialWithStatus = sampleReportsWithFeedback.map { rwl ->
-            val updated = ReportStatusManager.updateReportStatus(rwl.report)
-            rwl.copy(report = updated)
-        }
-        updatedSampleReports = if (SharedReportData.isSampleDataMigrated(context)) {
-            firestoreReportsWithExpired
-        } else {
-            initialWithStatus + firestoreReportsWithExpired
-        }
+        updatedSampleReports = reportsWithExpired
     }
 
     // === [업로드 결과 관찰 및 알림 처리 + 지도에 새 제보 추가] ===
@@ -519,7 +515,8 @@ fun HomeScreen(
                     "불편" -> ReportType.INCONVENIENCE
                     else -> ReportType.DISCOVERY
                 }
-                val newId = uploaded.documentId.hashCode().toLong().and(0x7FFFFFFFL).coerceAtLeast(10000L)
+                val newId = uploaded.documentId.toLongOrNull()
+                    ?: uploaded.documentId.hashCode().toLong().and(0x7FFFFFFFL).coerceAtLeast(10000L)
                 // 지난 상황 제보: 선택한 좌표 사용 / 실시간 제보: 현재 위치 사용
                 val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
                 val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
@@ -532,6 +529,7 @@ fun HomeScreen(
                     viewCount = 0,
                     status = ReportStatus.ACTIVE,
                     imageUrl = uploaded.imageUrl,
+                    imageUri = uploaded.imageUri,
                     isUserOwned = true,
                     reporterInfo = SampleReportData.currentUser
                 )
@@ -596,9 +594,13 @@ fun HomeScreen(
         val newLikeState = !currentLikeState
         userLikeStates = userLikeStates + (reportId to newLikeState)
         SharedReportData.saveUserLikeState(context, reportId, newLikeState)
-        reportWithLocation.report.documentId?.let { docId ->
-            scope.launch {
-                firestoreRepository.updateReportLike(docId, "guest_user", newLikeState)
+        val docId = reportWithLocation.report.documentId
+        scope.launch {
+            val backendReportId = docId?.toLongOrNull()
+            if (backendReportId != null && TokenManager.getBearerToken(context) != null) {
+                reportRepository.likeToggle(backendReportId)
+            } else {
+                SharedReportData.saveUserLikeState(context, reportId, newLikeState)
             }
         }
     }
@@ -654,21 +656,14 @@ fun HomeScreen(
                 )
                 updatedReport = ReportStatusManager.updateValiditySustainedTimestamps(updatedReport)
                 updatedReport = ReportStatusManager.updateReportStatus(updatedReport)
-                // Firestore 제보는 Firestore에 저장, documentId 없는 제보는 SharedPreferences
-                updatedReport.documentId?.let { docId ->
+                // 백엔드 제보는 API 호출, 그 외는 SharedPreferences
+                val backendReportId = updatedReport.documentId?.toLongOrNull()
+                if (backendReportId != null && newSelection != null && TokenManager.getBearerToken(context) != null) {
                     scope.launch {
-                        firestoreRepository.updateReportFeedback(
-                            docId,
-                            updatedPositiveCount,
-                            updatedNegativeCount,
-                            updatedReport.positive70SustainedSinceMillis,
-                            updatedReport.positive40to60SustainedSinceMillis,
-                            updatedNegativeTimestamps,
-                            updatedReport.feedbackConditionMetAtMillis,
-                            updatedReport.expiringAtMillis
-                        )
+                        val feedbackType = if (newSelection == "positive") "NOW" else "DONE"
+                        reportRepository.createFeedback(backendReportId, feedbackType)
                     }
-                } ?: run {
+                } else {
                     SharedReportData.saveFeedbackToPreferences(
                         context,
                         reportId,
@@ -1616,6 +1611,7 @@ private fun convertToReportCardUi(
         validityStatus = validityStatus,
         imageRes = report.imageResId ?: R.drawable.ic_report_img,
         imageUrl = report.imageUrl,
+        imageUri = report.imageUri,
         views = report.viewCount,
         typeLabel = typeLabel,
         typeColor = typeColor,

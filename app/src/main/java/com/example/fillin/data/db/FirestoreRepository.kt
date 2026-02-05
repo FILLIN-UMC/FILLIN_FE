@@ -53,6 +53,7 @@ class FirestoreRepository {
             UploadedReportResult(
                 documentId = docRef.id,
                 imageUrl = downloadUrl,
+                imageUri = null,
                 category = category,
                 title = title,
                 location = location
@@ -71,6 +72,7 @@ class FirestoreRepository {
         return try {
             val sampleReports = SampleReportData.getSampleReports()
             var successCount = 0
+            val sampleDocumentIds = mutableSetOf<String>()
             for (reportWithLocation in sampleReports) {
                 val report = reportWithLocation.report
                 val drawableResId = report.imageResId ?: continue
@@ -89,8 +91,12 @@ class FirestoreRepository {
                     longitude = reportWithLocation.longitude,
                     createdAtMillis = report.createdAtMillis
                 )
-                if (result != null) successCount++
+                if (result != null) {
+                    successCount++
+                    sampleDocumentIds.add(result.documentId)
+                }
             }
+            com.example.fillin.data.SharedReportData.setSampleReportDocumentIds(context, sampleDocumentIds)
             Result.success(successCount)
         } catch (e: Exception) {
             Log.e("FirestoreRepository", "migrateSampleReports 실패: ${e.message}", e)
@@ -184,7 +190,8 @@ data class ReportDocument(
 /** 업로드 성공 시 지도에 추가할 수 있도록 반환하는 데이터 */
 data class UploadedReportResult(
     val documentId: String,
-    val imageUrl: String,
+    val imageUrl: String? = null,  // API 응답에는 없음, Firestore는 downloadUrl 반환
+    val imageUri: android.net.Uri? = null,  // 등록 시 사용한 로컬 이미지 (API 등록 직후 배너 표시용)
     val category: String,
     val title: String,
     val location: String
