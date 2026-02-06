@@ -4,8 +4,6 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
-import com.example.fillin.data.SampleReportData
-import com.example.fillin.domain.model.ReportType
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -65,43 +63,10 @@ class FirestoreRepository {
     }
 
     /**
-     * 샘플 제보 데이터를 Firebase Storage + Firestore로 마이그레이션합니다.
-     * drawable 리소스를 이미지로 변환해 업로드한 뒤 Firestore에 저장합니다.
+     * 샘플 제보 마이그레이션 (하드코딩 샘플 데이터 제거로 비활성화)
      */
     suspend fun migrateSampleReportsToFirebase(context: Context): Result<Int> {
-        return try {
-            val sampleReports = SampleReportData.getSampleReports()
-            var successCount = 0
-            val sampleDocumentIds = mutableSetOf<String>()
-            for (reportWithLocation in sampleReports) {
-                val report = reportWithLocation.report
-                val drawableResId = report.imageResId ?: continue
-                val uri = drawableToUri(context, drawableResId) ?: continue
-                val category = when (report.type) {
-                    ReportType.DANGER -> "위험"
-                    ReportType.INCONVENIENCE -> "불편"
-                    ReportType.DISCOVERY -> "발견"
-                }
-                val result = uploadReport(
-                    category = category,
-                    title = report.meta,
-                    location = report.title,
-                    imageUri = uri,
-                    latitude = reportWithLocation.latitude,
-                    longitude = reportWithLocation.longitude,
-                    createdAtMillis = report.createdAtMillis
-                )
-                if (result != null) {
-                    successCount++
-                    sampleDocumentIds.add(result.documentId)
-                }
-            }
-            com.example.fillin.data.SharedReportData.setSampleReportDocumentIds(context, sampleDocumentIds)
-            Result.success(successCount)
-        } catch (e: Exception) {
-            Log.e("FirestoreRepository", "migrateSampleReports 실패: ${e.message}", e)
-            Result.failure(e)
-        }
+        return Result.success(0)
     }
 
     private fun drawableToUri(context: Context, drawableResId: Int): Uri? {

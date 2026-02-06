@@ -2,6 +2,7 @@ package com.example.fillin.data.api
 
 import com.example.fillin.data.model.report.PopularReportListResponse
 import com.example.fillin.data.model.report.ReportCreateResponse
+import com.example.fillin.data.model.report.ReportImageDetailResponse
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import retrofit2.http.GET
@@ -27,6 +28,9 @@ interface ReportApiService {
 
     @GET("api/reports/popular")
     suspend fun getPopularReports(): PopularReportListResponse
+
+    @GET("api/reports/{reportId}/detail")
+    suspend fun getReportDetail(@Path("reportId") reportId: Long): ReportImageDetailResponse
 
     @POST("api/reports/{reportId}/feedback")
     suspend fun createFeedback(

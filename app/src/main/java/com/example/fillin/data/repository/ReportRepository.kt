@@ -10,6 +10,7 @@ import com.example.fillin.data.db.FirestoreRepository
 import com.example.fillin.data.db.UploadedReportResult
 import com.example.fillin.data.model.report.PopularReportListResponse
 import com.example.fillin.data.model.report.ReportApiResponse
+import com.example.fillin.data.model.report.ReportImageDetailResponse
 import com.example.fillin.data.model.report.ReportCategory
 import com.example.fillin.data.model.report.ReportCreateRequest
 import com.google.gson.Gson
@@ -133,6 +134,10 @@ class ReportRepository(private val context: Context) {
 
     suspend fun getPopularReports(): Result<PopularReportListResponse> = runCatching {
         api.getPopularReports()
+    }
+
+    suspend fun getReportDetail(reportId: Long): Result<ReportImageDetailResponse> = runCatching {
+        api.getReportDetail(reportId)
     }
 
     suspend fun createFeedback(reportId: Long, type: String): Result<ReportApiResponse> = runCatching {

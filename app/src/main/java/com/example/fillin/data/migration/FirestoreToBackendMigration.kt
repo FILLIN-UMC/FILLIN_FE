@@ -8,7 +8,6 @@ import com.example.fillin.R
 import com.example.fillin.data.api.TokenManager
 import com.example.fillin.data.db.FirestoreRepository
 import com.example.fillin.data.SharedReportData
-import com.example.fillin.data.SampleReportData
 import com.example.fillin.data.db.ReportDocument
 import com.example.fillin.data.repository.ReportRepository
 import kotlinx.coroutines.Dispatchers
@@ -141,11 +140,7 @@ class FirestoreToBackendMigration(
         }
     }
 
-    private fun buildSampleSignatures(): Set<String> {
-        return SampleReportData.getSampleReports().map { rwl ->
-            "${rwl.report.meta}|${rwl.report.title}|${rwl.latitude}|${rwl.longitude}"
-        }.toSet()
-    }
+    private fun buildSampleSignatures(): Set<String> = emptySet()
 
     private fun isSampleReportByContent(doc: ReportDocument, sampleSignatures: Set<String>): Boolean {
         val d = doc.data

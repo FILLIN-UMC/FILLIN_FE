@@ -40,6 +40,8 @@ fun ReportRegistrationScreen(
     var selectedCategory by remember { mutableStateOf("위험") }
     var title by remember { mutableStateOf(initialTitle) }
     var location by remember { mutableStateOf(initialLocation) }
+    // 지도에서 장소 변경 후 돌아왔을 때 initialLocation 반영
+    LaunchedEffect(initialLocation) { location = initialLocation }
     // 공백을 제외한 글자 수를 계산하는 변수를 미리 선언합니다.
     val pureCharCount = title.count { !it.isWhitespace() }
     // 제목과 장소가 모두 입력되었는지 확인하는 상태 변수

@@ -71,6 +71,7 @@ import com.example.fillin.data.db.ReportDocument
 import com.example.fillin.data.db.UploadedReportResult
 import com.example.fillin.data.api.TokenManager
 import com.example.fillin.data.model.mypage.MyReportItem
+import com.example.fillin.data.model.report.ReportImageDetailData
 import com.example.fillin.data.repository.MypageRepository
 import com.example.fillin.data.repository.ReportRepository
 import com.example.fillin.domain.model.Report
@@ -153,6 +154,8 @@ fun HomeScreen(
     
     // 선택된 제보 (마커 클릭 시 표시할 제보)
     var selectedReport by remember { mutableStateOf<ReportWithLocation?>(null) }
+    // 제보 상세 API 응답 (마커 클릭 시 조회, 목록 데이터보다 상세 정보 우선 표시)
+    var reportDetail by remember { mutableStateOf<ReportImageDetailData?>(null) }
     
     // 사용자 피드백 선택 상태 추적 (reportId -> "positive" | "negative" | null)
     var userFeedbackSelections by remember(context) { 
@@ -465,9 +468,13 @@ fun HomeScreen(
         val defaultLon = 126.9780
         val userDeletedIds = SharedReportData.loadUserDeletedFromRegisteredIds(context)
 
-        var reports = if (TokenManager.getBearerToken(context) != null) {
+        val isLoggedIn = TokenManager.getBearerToken(context) != null
+        var reports = if (isLoggedIn) {
             // 로그인: 내 제보만
-            mypageRepository.getMyReports().getOrNull()?.data?.mapNotNull { item ->
+            val result = mypageRepository.getMyReports()
+            val data = result.getOrNull()?.data
+            Log.d("HomeScreen", "[제보 로드] 로그인됨 → getMyReports() 호출, 응답 개수=${data?.size ?: 0}, 성공=${result.isSuccess}")
+            data?.mapNotNull { item ->
                 val reportId = item.reportId ?: return@mapNotNull null
                 val lat = item.latitude ?: defaultLat
                 val lon = item.longitude ?: defaultLon
@@ -493,10 +500,13 @@ fun HomeScreen(
                     latitude = lat,
                     longitude = lon
                 )
-            } ?: emptyList()
+            }?.distinctBy { it.report.id } ?: emptyList()
         } else {
             // 비로그인: 인기 제보 (최대 6개)
-            reportRepository.getPopularReports().getOrNull()?.data?.popularReports?.mapNotNull { item ->
+            val result = reportRepository.getPopularReports()
+            val popularList = result.getOrNull()?.data?.popularReports
+            Log.d("HomeScreen", "[제보 로드] 비로그인 → getPopularReports() 호출, 응답 개수=${popularList?.size ?: 0}, 성공=${result.isSuccess}")
+            popularList?.mapNotNull { item ->
                 val reportId = item.id ?: return@mapNotNull null
                 val lat = item.latitude ?: defaultLat
                 val lon = item.longitude ?: defaultLon
@@ -522,12 +532,7 @@ fun HomeScreen(
                     latitude = lat,
                     longitude = lon
                 )
-            } ?: emptyList()
-        }
-
-        // API에서 제보가 없으면 샘플 데이터로 폴백 (개발/데모용)
-        if (reports.isEmpty()) {
-            reports = SampleReportData.getSampleReports()
+            }?.distinctBy { it.report.id } ?: emptyList()
         }
 
         val reportsWithExpired = reports.map { rwl ->
@@ -674,6 +679,22 @@ fun HomeScreen(
             }
             
             delay(50) // 50ms마다 체크
+        }
+    }
+    
+    // 제보 상세 API 호출 (마커 클릭 시)
+    LaunchedEffect(selectedReport) {
+        reportDetail = null
+        val reportId = selectedReport?.report?.id ?: return@LaunchedEffect
+        val docId = selectedReport?.report?.documentId?.toLongOrNull() ?: reportId
+        val result = reportRepository.getReportDetail(docId)
+        result.onSuccess { response ->
+            response.data?.let { data ->
+                reportDetail = data
+                Log.d("HomeScreen", "제보 상세 API 성공: reportId=${data.reportId}")
+            }
+        }.onFailure { e ->
+            Log.w("HomeScreen", "제보 상세 API 실패: reportId=$reportId", e)
         }
     }
     
@@ -1141,14 +1162,17 @@ fun HomeScreen(
     LaunchedEffect(naverMap, updatedSampleReports, reportListVersion, lastUploadTimeMillis, lastUploadedLatLon, selectedCategories, cameraZoomLevel, userDeletedFromRegistered, permanentlyDeleted) {
         naverMap?.let { naverMapInstance ->
             // ACTIVE 상태인 제보만 필터링 (나의 제보에서 삭제한 제보, 완전 삭제한 제보는 지도에 표시 안 함)
-            val activeReports = updatedSampleReports.filter {
-                it.report.id !in permanentlyDeleted &&
-                it.report.status == ReportStatus.ACTIVE &&
-                !(it.report.isUserOwned && it.report.id in userDeletedFromRegistered)
-            }
+            // 서버 DB 중복 제거: report.id 기준으로 첫 번째만 유지
+            val activeReports = updatedSampleReports
+                .filter {
+                    it.report.id !in permanentlyDeleted &&
+                    it.report.status == ReportStatus.ACTIVE &&
+                    !(it.report.isUserOwned && it.report.id in userDeletedFromRegistered)
+                }
+                .distinctBy { it.report.id }
             
-            // 줌 레벨이 14 이하이면 클러스터링
-            if (cameraZoomLevel <= 14.0) {
+            // 줌 레벨이 14 이하이면 클러스터링 (단, 카테고리 선택 시에는 개별 마커 표시하여 크기 변화 보임)
+            if (cameraZoomLevel <= 14.0 && selectedCategories.isEmpty()) {
                 // 기존 마커 제거
                 markers.forEach { it.map = null }
                 markers.clear()
@@ -1166,7 +1190,7 @@ fun HomeScreen(
                     )
                     processed[index] = true
                     
-                    // 가까운 제보들을 클러스터 중심점 기준으로 묶기 (100미터 이내, 카테고리 구분 없음)
+                    // 가까운 제보들을 클러스터 중심점 기준으로 묶기 (300m 이내, 카테고리 구분 없음)
                     var changed = true
                     while (changed) {
                         changed = false
@@ -1406,38 +1430,39 @@ fun HomeScreen(
         // === [제보 관련 UI 오버레이] ===
         
         // [1. 제보 등록 화면 오버레이] - 실시간 제보
-        if (geminiViewModel.aiResult.isNotEmpty() && !isMapPickingMode && !isPastReportPhotoStage && !isPastReportLocationMode && !isPastFlow) {
-            ReportRegistrationScreen(
-                topBarTitle = "실시간 제보",
-                imageUri = capturedUri,
-                initialTitle = geminiViewModel.aiResult,
-                // [수정] 하드코딩 대신 currentAddress 사용
-                initialLocation = finalLocation.ifEmpty { currentAddress },
-                onLocationFieldClick = { isMapPickingMode = true },
-                onDismiss = { geminiViewModel.clearResult() },
-                onRegister = { category, title, location, uri ->
-                    val lat = currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
-                    val lon = currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
-                    reportViewModel.uploadReport(category, title, location, uri, lat, lon)
+        // ReportRegistrationScreen을 항상 유지하고, 위치 선택 시 LocationSelectionScreen을 그 위에 오버레이
+        // → 장소 변경 후 돌아와도 사용자가 수정한 제목이 유지됨
+        if (geminiViewModel.aiResult.isNotEmpty() && !isPastReportPhotoStage && !isPastReportLocationMode && !isPastFlow) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                ReportRegistrationScreen(
+                    topBarTitle = "실시간 제보",
+                    imageUri = capturedUri,
+                    initialTitle = geminiViewModel.aiResult,
+                    initialLocation = finalLocation.ifEmpty { currentAddress },
+                    onLocationFieldClick = { isMapPickingMode = true },
+                    onDismiss = { geminiViewModel.clearResult() },
+                    onRegister = { category, title, location, uri ->
+                        val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
+                        val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
+                        reportViewModel.uploadReport(category, title, location, uri, lat, lon)
+                    }
+                )
+                if (isMapPickingMode) {
+                    LocationSelectionScreen(
+                        initialAddress = finalLocation.ifEmpty { currentAddress },
+                        onBack = { isMapPickingMode = false },
+                        onLocationSet = { selectedAddress, lat, lon ->
+                            finalLocation = selectedAddress
+                            finalLatitude = lat
+                            finalLongitude = lon
+                            isMapPickingMode = false
+                        }
+                    )
                 }
-            )
+            }
         }
         
-        // [2. 위치 선택 화면 오버레이]
-        if (isMapPickingMode) {
-            LocationSelectionScreen(
-                initialAddress = finalLocation.ifEmpty { currentAddress },
-                onBack = { isMapPickingMode = false },
-                onLocationSet = { selectedAddress, lat, lon ->
-                    finalLocation = selectedAddress
-                    finalLatitude = lat
-                    finalLongitude = lon
-                    isMapPickingMode = false
-                }
-            )
-        }
-        
-        // [3. 제보 메뉴 오버레이]
+        // [2. 제보 메뉴 오버레이]
         if (showReportMenu) {
             Box(
                 modifier = Modifier
@@ -1460,7 +1485,7 @@ fun HomeScreen(
             )
         }
         
-        // [4. 카메라 화면 오버레이]
+        // [3. 카메라 화면 오버레이]
         if (showCamera) {
             RealtimeReportScreen(
                 onDismiss = { showCamera = false },
@@ -1481,12 +1506,12 @@ fun HomeScreen(
             )
         }
         
-        // [5. AI 분석 중 / 제보 등록 중 로딩 오버레이]
+        // [4. AI 분석 중 / 제보 등록 중 로딩 오버레이]
         if (geminiViewModel.isAnalyzing || reportViewModel.isUploading) {
             AiLoadingOverlay(isUploading = reportViewModel.isUploading)
         }
         
-        // [6. 지난 상황 제보 - 위치 설정 화면]
+        // [5. 지난 상황 제보 - 위치 설정 화면]
         if (isPastReportLocationMode) {
             PastReportLocationScreen(
                 initialAddress = finalLocation.ifEmpty { currentAddress },
@@ -1507,7 +1532,7 @@ fun HomeScreen(
             )
         }
         
-        // [7. 지난 상황 제보 - 갤러리 사진 선택 화면]
+        // [6. 지난 상황 제보 - 갤러리 사진 선택 화면]
         if (isPastReportPhotoStage) {
             PastReportPhotoSelectionScreen(
                 onClose = { isPastReportPhotoStage = false },
@@ -1528,7 +1553,7 @@ fun HomeScreen(
             )
         }
         
-        // [8. 지난 상황 제보 - 등록 화면]
+        // [7. 지난 상황 제보 - 등록 화면]
         if (isPastFlow && !isPastReportPhotoStage && !isPastReportLocationMode && capturedUri != null &&
             geminiViewModel.aiResult.isNotEmpty() && !geminiViewModel.isAnalyzing) {
             ReportRegistrationScreen(
@@ -1576,8 +1601,21 @@ fun HomeScreen(
                 updatedSampleReports.find { it.report.id == reportWithLocation.report.id } 
                     ?: reportWithLocation
             }
-            val reportCardUi = remember(currentReportWithLocation, currentUserLocation, currentUserNickname) { 
-                convertToReportCardUi(currentReportWithLocation, currentUserLocation, currentUserNickname) 
+            // 제보 상세 API 응답이 있으면 우선 사용 (viewCount, doneCount, nowCount, validType 등 최신 반영)
+            val reportCardUi = remember(
+                reportDetail, currentReportWithLocation, currentUserLocation, currentUserNickname, userLikeStates
+            ) {
+                val detail = reportDetail
+                val reportId = currentReportWithLocation.report.id
+                if (detail != null && (detail.reportId ?: 0L) == reportId) {
+                    convertDetailToReportCardUi(
+                        detail = detail,
+                        currentUserLocation = currentUserLocation,
+                        isLiked = userLikeStates[reportId] ?: currentReportWithLocation.report.isSaved
+                    )
+                } else {
+                    convertToReportCardUi(currentReportWithLocation, currentUserLocation, currentUserNickname)
+                }
             }
             // 배경 오버레이 (전체 화면을 덮어 네비게이션 바까지 어둡게 처리)
             Box(
@@ -1722,6 +1760,94 @@ private fun convertToReportCardUi(
         okCount = report.positiveFeedbackCount,
         dangerCount = report.negativeFeedbackCount,
         isLiked = report.isSaved
+    )
+}
+
+/** 제보 상세 API 응답을 ReportCardUi로 변환 */
+private fun convertDetailToReportCardUi(
+    detail: ReportImageDetailData,
+    currentUserLocation: android.location.Location?,
+    isLiked: Boolean
+): ReportCardUi {
+    fun calculateDistanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val earthRadius = 6371000.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = sin(dLat / 2).pow(2) +
+                cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
+                sin(dLon / 2).pow(2)
+        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        return earthRadius * c
+    }
+
+    val reportId = detail.reportId ?: 0L
+    val lat = detail.latitude ?: 0.0
+    val lon = detail.longitude ?: 0.0
+
+    val validityStatus = when (detail.validType) {
+        "최근에도 확인됐어요" -> ValidityStatus.VALID
+        "제보 의견이 나뉘어요" -> ValidityStatus.INTERMEDIATE
+        "오래된 제보일 수 있어요" -> ValidityStatus.INVALID
+        else -> ValidityStatus.VALID
+    }
+
+    val (typeLabel, typeColor) = when (detail.reportCategory) {
+        "DANGER" -> "위험" to Color(0xFFFF6060)
+        "INCONVENIENCE" -> "불편" to Color(0xFF4595E5)
+        "DISCOVERY" -> "발견" to Color(0xFF29C488)
+        else -> "발견" to Color(0xFF29C488)
+    }
+
+    val userBadge = when (detail.achievement) {
+        "ROOKIE" -> "루키"
+        "VETERAN" -> "베테랑"
+        "MASTER" -> "마스터"
+        else -> "루키"
+    }
+
+    val createdLabel = try {
+        val createAt = detail.createAt ?: ""
+        if (createAt.isBlank()) "오늘" else {
+            val parsed = java.time.LocalDateTime.parse(createAt.take(19))
+                .atZone(java.time.ZoneId.systemDefault())
+                .toInstant()
+            val now = java.time.Instant.now()
+            val daysAgo = java.time.Duration.between(parsed, now).toDays()
+            if (daysAgo == 0L) "오늘" else "${daysAgo}일 전"
+        }
+    } catch (_: Exception) {
+        "오늘"
+    }
+
+    val addressDisplay = (detail.address ?: "").replace(
+        Regex("^[가-힣]+(?:시|도)\\s+[가-힣]+(?:구|시)\\s*"), ""
+    ).replace(Regex("\\s*[가-힣]*역\\s*\\d+번\\s*출구\\s*앞"), "").trim()
+
+    val distance = if (currentUserLocation != null) {
+        val distanceMeters = calculateDistanceMeters(
+            currentUserLocation.latitude, currentUserLocation.longitude, lat, lon
+        )
+        "가는 길 ${distanceMeters.toInt()}m"
+    } else ""
+
+    return ReportCardUi(
+        reportId = reportId,
+        validityStatus = validityStatus,
+        imageRes = R.drawable.ic_report_img,
+        imageUrl = detail.reportImageUrl,
+        imageUri = null,
+        views = detail.viewCount,
+        typeLabel = typeLabel,
+        typeColor = typeColor,
+        userName = "사용자",
+        userBadge = userBadge,
+        title = detail.title ?: "",
+        createdLabel = createdLabel,
+        address = addressDisplay.ifBlank { detail.address ?: "" },
+        distance = distance,
+        okCount = detail.doneCount,
+        dangerCount = detail.nowCount,
+        isLiked = isLiked
     )
 }
 
