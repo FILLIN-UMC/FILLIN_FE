@@ -19,11 +19,11 @@ import retrofit2.http.POST
  */
 interface UserApiService {
 
-    // ---- 테스트용 ----
-    @POST("api/v1/auth/test/signup")
+    // ---- 테스트용 (백엔드 AuthController: /api/auth/test) ----
+    @POST("api/auth/test/signup")
     suspend fun testSignup(@Body request: SignupRequest): SignupResponse
 
-    @POST("api/v1/auth/test/login")
+    @POST("api/auth/test/login")
     suspend fun testLogin(@Body request: LoginRequest): LoginResponse
 
     // ---- 소셜 로그인 (백엔드 OAuthController: /api/auth) ----

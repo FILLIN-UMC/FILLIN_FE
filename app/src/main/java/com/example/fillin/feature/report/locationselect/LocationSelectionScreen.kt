@@ -21,15 +21,17 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import com.example.fillin.ui.map.MapContent
 
-// 지도에서 장소 선택 화면
+// 지도에서 장소 선택 화면 (실시간 제보용)
 @Composable
 fun LocationSelectionScreen(
     initialAddress: String,
     onBack: () -> Unit,
-    onLocationSet: (String) -> Unit
+    onLocationSet: (address: String, latitude: Double, longitude: Double) -> Unit
 ) {
-    // 현재 지도의 중앙 지점 주소를 관리하는 상태
+    // 현재 지도의 중앙 지점 주소 및 좌표를 관리하는 상태 (주소와 좌표 일치 보장)
     var centerAddress by remember { mutableStateOf(initialAddress) }
+    var centerLat by remember { mutableStateOf(37.5665) }
+    var centerLon by remember { mutableStateOf(126.9780) }
     val coroutineScope = rememberCoroutineScope()
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -37,24 +39,20 @@ fun LocationSelectionScreen(
         MapContent(
             modifier = Modifier.fillMaxSize(),
             onMapReady = { naverMap ->
-                // 지도가 움직일 때마다 중앙 좌표의 주소를 역지오코딩하여 centerAddress 업데이트 로직 추가 가능
-                // ★ 핵심: 지도가 멈췄을 때 실행되는 리스너
+                // 지도가 움직일 때마다 중앙 좌표의 주소를 역지오코딩하여 centerAddress 업데이트
                 naverMap.addOnCameraIdleListener {
-                    // 현재 지도의 정중앙 좌표 추출
                     val cameraCenter = naverMap.cameraPosition.target
-                    // 비동기로 카카오 API 호출
+                    centerLat = cameraCenter.latitude
+                    centerLon = cameraCenter.longitude
                     coroutineScope.launch {
                         try {
                             val response = RetrofitClient.kakaoApi.getAddressFromCoord(
                                 token = "KakaoAK ${BuildConfig.KAKAO_REST_API_KEY}",
-                                longitude = cameraCenter.longitude, // x
-                                latitude = cameraCenter.latitude    // y
+                                longitude = cameraCenter.longitude,
+                                latitude = cameraCenter.latitude
                             )
-
-                            // DTO 그릇에서 데이터 꺼내기
                             val addressDoc = response.documents.firstOrNull()
                             if (addressDoc != null) {
-                                // 도로명 주소가 있으면 우선 사용, 없으면 지번 주소 사용
                                 centerAddress = addressDoc.road_address?.address_name
                                     ?: addressDoc.address?.address_name
                                             ?: "주소를 찾을 수 없는 지역입니다"
@@ -128,7 +126,7 @@ fun LocationSelectionScreen(
                 )
                 Spacer(Modifier.height(16.dp))
                 Button(
-                    onClick = { onLocationSet(centerAddress) }, // 최종 선택된 주소를 부모로 전달
+                    onClick = { onLocationSet(centerAddress, centerLat, centerLon) }, // 주소와 좌표를 함께 전달 (마커 위치 일치)
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4090E0)),
                     shape = RoundedCornerShape(28.dp)

@@ -32,8 +32,8 @@ class AuthTokenInterceptor(private val context: Context) : Interceptor {
     }
 
     private fun isNoAuthEndpoint(url: String): Boolean {
-        return url.contains("/api/v1/auth/test/signup") ||
-            url.contains("/api/v1/auth/test/login") ||
+        return url.contains("/api/auth/test/signup") ||
+            url.contains("/api/auth/test/login") ||
             url.contains("/api/auth/kakao/login") ||
             url.contains("/api/auth/google/login") ||
             url.contains("/api/auth/reissue")

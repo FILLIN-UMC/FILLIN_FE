@@ -177,6 +177,18 @@ fun MyPageScreen(
     LaunchedEffect(Unit) {
         vm.load(context)
     }
+
+    // 홈 ↔ 마이페이지 전환 시마다 데이터 새로고침 (제보 등록 후 총 제보 수 반영)
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                vm.load(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     
     // 뱃지 획득 팝업 표시 여부 및 뱃지 정보
     val backStackEntry by navController.currentBackStackEntryAsState()
