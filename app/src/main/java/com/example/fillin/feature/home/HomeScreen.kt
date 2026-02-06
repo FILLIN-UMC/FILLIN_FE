@@ -30,6 +30,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -87,6 +88,7 @@ import com.naver.maps.map.NaverMap
 import com.naver.maps.map.overlay.Marker
 import com.naver.maps.map.overlay.OverlayImage
 import com.naver.maps.geometry.LatLng
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.delay
@@ -94,6 +96,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import kotlin.math.*
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -156,7 +160,20 @@ fun HomeScreen(
     }
     
     // 나의 제보에서 사용자가 삭제(사라진 제보로 이동)한 제보 ID (지도/마이페이지에서 숨김)
-    val userDeletedFromRegistered = remember { SharedReportData.loadUserDeletedFromRegisteredIds(context) }
+    var userDeletedFromRegistered by remember { mutableStateOf(SharedReportData.loadUserDeletedFromRegisteredIds(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                userDeletedFromRegistered = SharedReportData.loadUserDeletedFromRegisteredIds(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            userDeletedFromRegistered = SharedReportData.loadUserDeletedFromRegisteredIds(context)
+        }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // 사용자 좋아요 상태 추적 (reportId -> Boolean)
     var userLikeStates by remember(context) { 
