@@ -112,6 +112,7 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
 import java.net.URL
+import retrofit2.HttpException
 
 @Composable
 private fun SetStatusBarColor(color: Color, darkIcons: Boolean) {
@@ -156,6 +157,9 @@ fun HomeScreen(
     var selectedReport by remember { mutableStateOf<ReportWithLocation?>(null) }
     // 제보 상세 API 응답 (마커 클릭 시 조회, 목록 데이터보다 상세 정보 우선 표시)
     var reportDetail by remember { mutableStateOf<ReportImageDetailData?>(null) }
+    var isLoadingDetail by remember { mutableStateOf(false) }
+    var detailLoadError by remember { mutableStateOf<String?>(null) }
+    var showLoginPrompt by remember { mutableStateOf(false) }
     
     // 사용자 피드백 선택 상태 추적 (reportId -> "positive" | "negative" | null)
     var userFeedbackSelections by remember(context) { 
@@ -685,9 +689,13 @@ fun HomeScreen(
     // 제보 상세 API 호출 (마커 클릭 시)
     LaunchedEffect(selectedReport) {
         reportDetail = null
+        detailLoadError = null
+        showLoginPrompt = false
         val reportId = selectedReport?.report?.id ?: return@LaunchedEffect
         val docId = selectedReport?.report?.documentId?.toLongOrNull() ?: reportId
+        isLoadingDetail = true
         val result = reportRepository.getReportDetail(docId)
+        isLoadingDetail = false
         result.onSuccess { response ->
             response.data?.let { data ->
                 reportDetail = data
@@ -695,6 +703,24 @@ fun HomeScreen(
             }
         }.onFailure { e ->
             Log.w("HomeScreen", "제보 상세 API 실패: reportId=$reportId", e)
+            val isUnauthorized = (e as? HttpException)?.code() == 401
+            if (isUnauthorized) {
+                showLoginPrompt = true
+            } else {
+                detailLoadError = "상세 정보를 불러오지 못했습니다"
+            }
+        }
+    }
+    
+    // 에러/비로그인 안내 Toast 표시
+    LaunchedEffect(detailLoadError, showLoginPrompt) {
+        detailLoadError?.let { msg ->
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            detailLoadError = null
+        }
+        if (showLoginPrompt) {
+            Toast.makeText(context, "로그인하면 더 자세한 정보를 볼 수 있어요", Toast.LENGTH_SHORT).show()
+            showLoginPrompt = false
         }
     }
     
@@ -1635,11 +1661,12 @@ fun HomeScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    ReportCard(
-                        report = reportCardUi,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(enabled = false) { }, // 카드 내부 클릭 방지
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        ReportCard(
+                            report = reportCardUi,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = false) { }, // 카드 내부 클릭 방지
                         selectedFeedback = userFeedbackSelections[reportCardUi.reportId],
                         isLiked = userLikeStates[reportCardUi.reportId] ?: reportCardUi.isLiked,
                         onPositiveFeedback = {
@@ -1656,6 +1683,21 @@ fun HomeScreen(
                             toggleLike(reportCardUi.reportId)
                         }
                     )
+                    // 상세 로딩 중 표시
+                    if (isLoadingDetail) {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .background(Color.Black.copy(alpha = 0.3f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                modifier = Modifier.size(40.dp)
+                            )
+                        }
+                    }
+                }
                     
                     // 제보 카드 닫기 버튼
                     Spacer(modifier = Modifier.height(16.dp))
@@ -1753,6 +1795,7 @@ private fun convertToReportCardUi(
         typeColor = typeColor,
         userName = if (report.isUserOwned) currentUserNickname else (report.reporterInfo?.nickname ?: "사용자"),
         userBadge = if (report.isUserOwned) SharedReportData.getBadgeName() else "루키", // 본인 제보면 현재 뱃지, 아니면 기본 뱃지
+        profileImageUrl = report.reporterInfo?.profileImageUrl,
         title = title,
         createdLabel = createdLabel,
         address = addressWithoutCityDistrict,
@@ -1841,6 +1884,7 @@ private fun convertDetailToReportCardUi(
         typeColor = typeColor,
         userName = "사용자",
         userBadge = userBadge,
+        profileImageUrl = detail.profileImageUrl,
         title = detail.title ?: "",
         createdLabel = createdLabel,
         address = addressDisplay.ifBlank { detail.address ?: "" },

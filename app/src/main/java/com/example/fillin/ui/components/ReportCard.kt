@@ -45,6 +45,7 @@ data class ReportCardUi(
     val typeColor: Color,
     val userName: String,
     val userBadge: String,
+    val profileImageUrl: String? = null, // 작성자 프로필 이미지 URL
     val title: String,
     val createdLabel: String,
     val address: String,
@@ -228,12 +229,21 @@ fun ReportCard(
                             .background(Color(0xFFE5E7EB)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.ic_user_img),
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
+                        if (!report.profileImageUrl.isNullOrBlank()) {
+                            coil.compose.AsyncImage(
+                                model = report.profileImageUrl,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Image(
+                                painter = painterResource(id = R.drawable.ic_user_img),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
                     }
                     Spacer(Modifier.width(6.dp))
 
