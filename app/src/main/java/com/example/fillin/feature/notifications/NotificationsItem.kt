@@ -76,6 +76,15 @@ sealed class NotificationContent {
     data class SystemNotice(
         val title: String
     ) : NotificationContent()
+
+    /**
+     * API에서 받은 알림 (alarmType, message, referId)
+     */
+    data class ApiMessage(
+        val message: String,
+        val referId: Long?,
+        val alarmType: String // REPORT, LIKE, LEVEL_UP, EXPIRATION, NOTICE
+    ) : NotificationContent()
 }
 
 @Composable
@@ -189,6 +198,10 @@ fun NotificationItem(
 
                             is NotificationContent.SystemNotice -> {
                                 append(content.title)
+                            }
+
+                            is NotificationContent.ApiMessage -> {
+                                append(content.message)
                             }
                         }
                     }

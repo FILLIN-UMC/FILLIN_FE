@@ -45,6 +45,19 @@ fun MainScreen(
     appPreferences: AppPreferences
 ) {
     val innerNavController = rememberNavController()
+    // FCM 토큰 등록: firebase-messaging 의존성 추가 후 아래 주석 해제
+    // LaunchedEffect(Unit) {
+    //     val context = LocalContext.current
+    //     if (TokenManager.getBearerToken(context) != null) {
+    //         runCatching {
+    //             val token = FirebaseMessaging.getInstance().token.await()
+    //             if (token.isNotBlank()) {
+    //                 MemberRepository(context).registerFcmToken(token)
+    //                 Log.d("FCM", "FCM token registered")
+    //             }
+    //         }.onFailure { e -> Log.e("FCM", "Failed to register FCM token", e) }
+    //     }
+    // }
     val backStackEntry by innerNavController.currentBackStackEntryAsState()
     val currentRoute: String? = backStackEntry?.destination?.route
 

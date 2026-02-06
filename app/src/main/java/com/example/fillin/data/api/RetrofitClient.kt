@@ -54,4 +54,10 @@ object RetrofitClient {
 
     fun getReportApi(context: android.content.Context): ReportApiService =
         getRetrofit(context).create(ReportApiService::class.java)
+
+    fun getAlarmApi(context: android.content.Context): AlarmApiService =
+        getRetrofit(context).create(AlarmApiService::class.java)
+
+    fun getMemberApi(context: android.content.Context): MemberApiService =
+        getRetrofit(context).create(MemberApiService::class.java)
 }

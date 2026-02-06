@@ -1483,11 +1483,22 @@ fun SettingsScreen(navController: NavController) {
     val coroutineScope = rememberCoroutineScope()
     val isLoggedIn = TokenManager.getBearerToken(context) != null
     
-    var reportNoti by rememberSaveable { mutableStateOf(true) }
+    var reportNoti by remember { mutableStateOf(true) }
     var showDeleteAllReportsDialog by remember { mutableStateOf(false) }
     var isDeletingReports by remember { mutableStateOf(false) }
-    var feedbackNoti by rememberSaveable { mutableStateOf(true) }
-    var serviceNoti by rememberSaveable { mutableStateOf(true) }
+    var feedbackNoti by remember { mutableStateOf(true) }
+    var serviceNoti by remember { mutableStateOf(true) }
+
+    LaunchedEffect(isLoggedIn) {
+        if (!isLoggedIn) return@LaunchedEffect
+        mypageRepository.getNotificationSettings().onSuccess { res ->
+            res.data?.let { data ->
+                reportNoti = data.reportAlarm ?: true
+                feedbackNoti = data.feedbackAlarm ?: true
+                serviceNoti = data.serviceAlarm ?: true
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -1551,7 +1562,18 @@ fun SettingsScreen(navController: NavController) {
                 title = "제보 알림",
                 subtitle = "가까운 위치의 새로운 제보에 대한 정보 알림",
                 checked = reportNoti,
-                onCheckedChange = { reportNoti = it }
+                onCheckedChange = {
+                    reportNoti = it
+                    if (isLoggedIn) {
+                        coroutineScope.launch {
+                            mypageRepository.updateNotificationSettings(
+                                reportAlarm = it,
+                                feedbackAlarm = feedbackNoti,
+                                serviceAlarm = serviceNoti
+                            )
+                        }
+                    }
+                }
             )
             Spacer(Modifier.height(18.dp))
 
@@ -1559,7 +1581,18 @@ fun SettingsScreen(navController: NavController) {
                 title = "피드백 알림",
                 subtitle = "다른 사용자가 나의 제보에 대한 피드백 반응 시 알림",
                 checked = feedbackNoti,
-                onCheckedChange = { feedbackNoti = it }
+                onCheckedChange = {
+                    feedbackNoti = it
+                    if (isLoggedIn) {
+                        coroutineScope.launch {
+                            mypageRepository.updateNotificationSettings(
+                                reportAlarm = reportNoti,
+                                feedbackAlarm = it,
+                                serviceAlarm = serviceNoti
+                            )
+                        }
+                    }
+                }
             )
 
             Spacer(Modifier.height(18.dp))
@@ -1568,7 +1601,18 @@ fun SettingsScreen(navController: NavController) {
                 title = "서비스 알림",
                 subtitle = "공지사항이나 이벤트, 업데이트 등 알림",
                 checked = serviceNoti,
-                onCheckedChange = { serviceNoti = it }
+                onCheckedChange = {
+                    serviceNoti = it
+                    if (isLoggedIn) {
+                        coroutineScope.launch {
+                            mypageRepository.updateNotificationSettings(
+                                reportAlarm = reportNoti,
+                                feedbackAlarm = feedbackNoti,
+                                serviceAlarm = it
+                            )
+                        }
+                    }
+                }
             )
 
             Spacer(Modifier.height(32.dp))
