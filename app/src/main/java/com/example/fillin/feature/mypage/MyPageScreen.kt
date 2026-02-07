@@ -71,6 +71,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.SideEffect
@@ -118,16 +119,19 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import com.example.fillin.data.AppPreferences
 import com.example.fillin.data.SharedReportData
 import com.example.fillin.data.api.TokenManager
+import com.example.fillin.data.model.auth.ApiErrorParser
 import com.example.fillin.data.repository.MypageRepository
 import com.example.fillin.ui.login.AuthViewModel
 import com.example.fillin.ui.login.AuthViewModelFactory
 import com.example.fillin.ui.login.AuthNavEvent
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import android.content.ContextWrapper
 import android.content.Intent
 import android.provider.Settings
 import android.widget.Toast
+import retrofit2.HttpException
 import com.example.fillin.MainActivity
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
@@ -1174,11 +1178,19 @@ fun ProfileEditScreen(
     navController: NavController,
     appPreferences: AppPreferences
 ) {
+    val context = LocalContext.current
+    val mypageRepository = remember(context) { MypageRepository(context) }
+    val coroutineScope = rememberCoroutineScope()
+    val isLoggedIn = TokenManager.getBearerToken(context) != null
+
+    val originalNickname = remember { appPreferences.getNickname().orEmpty() }
     var nickname by rememberSaveable(stateSaver = TextFieldValue.Saver) { 
         mutableStateOf(TextFieldValue(appPreferences.getNickname())) 
     }
     var isNicknameChecked by rememberSaveable { mutableStateOf(false) }
     var isNicknameAvailable by rememberSaveable { mutableStateOf(false) }
+    var isCheckingNickname by remember { mutableStateOf(false) }
+    var isSaving by remember { mutableStateOf(false) }
 
     // 프로필 이미지 선택 및 크롭 (AppPreferences에서 저장된 이미지 로드)
     val savedImageUri = appPreferences.getProfileImageUri()
@@ -1402,24 +1414,60 @@ fun ProfileEditScreen(
                     .height(48.dp)
                     .width(74.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .clickable(enabled = canCheck) {
-                        // TODO: 실제 API 연결 시 결과에 따라 isNicknameAvailable 값 설정
-                        // 임시 로직: 특정 닉네임은 이미 존재한다고 가정
-                        val takenNicknames = setOf("가나다")
-                        isNicknameChecked = true
-                        isNicknameAvailable = nickname.text.trim() !in takenNicknames
+                    .clickable(enabled = canCheck && !isCheckingNickname) {
+                        val trimmed = nickname.text.trim()
+                        // 닉네임이 변경되지 않았으면 API 호출 없이 사용 가능 처리
+                        if (trimmed == originalNickname) {
+                            isNicknameChecked = true
+                            isNicknameAvailable = true
+                            return@clickable
+                        }
+                        isCheckingNickname = true
+                        coroutineScope.launch {
+                            val result = mypageRepository.checkNickname(trimmed)
+                            isCheckingNickname = false
+                            result.fold(
+                                onSuccess = { response ->
+                                    isNicknameChecked = true
+                                    // data가 "사용가능" 포함이면 사용 가능
+                                    val dataStr = response.data?.lowercase().orEmpty()
+                                    isNicknameAvailable = dataStr.contains("사용가능") || dataStr.contains("사용 가능")
+                                },
+                                onFailure = { e ->
+                                    isNicknameChecked = true
+                                    // 207 (MULTI_STATUS) 등 = 중복
+                                    isNicknameAvailable = when (e) {
+                                        is HttpException -> e.code() != 207 && e.code() != 400
+                                        else -> false
+                                    }
+                                    if (!isNicknameAvailable) {
+                                        val msg = if (e is HttpException) ApiErrorParser.getMessage(e, "이미 존재하는 닉네임이에요.")
+                                        else e.message ?: "닉네임 확인에 실패했어요."
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
+                        }
                     },
                 shape = RoundedCornerShape(14.dp),
                 color = checkBg
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "중복확인",
-                        color = checkTextColor,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 14.sp,
-                        lineHeight = 14.sp
-                    )
+                    if (isCheckingNickname) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = checkTextColor,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text(
+                            text = "중복확인",
+                            color = checkTextColor,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 14.sp,
+                            lineHeight = 14.sp
+                        )
+                    }
                 }
             }
         }
@@ -1445,8 +1493,8 @@ fun ProfileEditScreen(
         // Bottom CTA
         // 닉네임이 확인되었거나, 프로필 이미지가 변경되었으면 완료 버튼 활성화
         val hasProfileImageChanged = profileImageUri?.toString() != savedImageUri
-        val canComplete = (isNicknameChecked && isNicknameAvailable) || hasProfileImageChanged
-        
+        val canComplete = ((isNicknameChecked && isNicknameAvailable) || hasProfileImageChanged) && !isSaving
+
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1454,15 +1502,46 @@ fun ProfileEditScreen(
                 .padding(bottom = 16.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .clickable(enabled = canComplete) {
-                    // 프로필 이미지 저장
-                    if (hasProfileImageChanged) {
-                        appPreferences.setProfileImageUri(profileImageUri?.toString())
+                    val trimmedNickname = nickname.text.trim()
+                    val newImageUri = if (hasProfileImageChanged) profileImageUri else null
+                    val existingProfileImageUrl = when {
+                        hasProfileImageChanged -> null
+                        savedImageUri?.startsWith("http") == true -> savedImageUri
+                        else -> null
                     }
-                    // 닉네임 저장 (닉네임 확인이 완료된 경우에만)
-                    if (isNicknameChecked && isNicknameAvailable) {
-                        appPreferences.setNickname(nickname.text.trim())
+
+                    if (isLoggedIn) {
+                        isSaving = true
+                        coroutineScope.launch {
+                            val result = mypageRepository.updateProfile(
+                                nickname = trimmedNickname,
+                                profileImageUrl = existingProfileImageUrl,
+                                imageUri = newImageUri
+                            )
+                            isSaving = false
+                            result.fold(
+                                onSuccess = { response ->
+                                    response.data?.let { data ->
+                                        data.nickname?.let { appPreferences.setNickname(it) }
+                                        data.profileImageUrl?.let { appPreferences.setProfileImageUri(it) }
+                                    }
+                                    Toast.makeText(context, "프로필이 저장되었어요.", Toast.LENGTH_SHORT).show()
+                                    navController.popBackStack()
+                                },
+                                onFailure = { e ->
+                                    val msg = when (e) {
+                                        is HttpException -> ApiErrorParser.getMessage(e, "프로필 저장에 실패했어요.")
+                                        else -> e.message ?: "프로필 저장에 실패했어요."
+                                    }
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        }
+                    } else {
+                        if (hasProfileImageChanged) appPreferences.setProfileImageUri(profileImageUri?.toString())
+                        if (isNicknameChecked && isNicknameAvailable) appPreferences.setNickname(trimmedNickname)
+                        navController.popBackStack()
                     }
-                    navController.popBackStack()
                 },
             shape = RoundedCornerShape(999.dp),
             color = if (canComplete) Color(0xFF4595E5) else Color(0xFFBFDBFE)
@@ -1471,13 +1550,21 @@ fun ProfileEditScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "완료",
-                    color = if (canComplete) Color.White else Color(0xFFFFFFFF).copy(alpha = 0.7f),
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 18.sp,
-                    lineHeight = 18.sp
-                )
+                if (isSaving) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text(
+                        text = "완료",
+                        color = if (canComplete) Color.White else Color(0xFFFFFFFF).copy(alpha = 0.7f),
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 18.sp,
+                        lineHeight = 18.sp
+                    )
+                }
             }
         }
     }

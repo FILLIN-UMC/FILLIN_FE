@@ -110,6 +110,12 @@ class AuthViewModel(
                     Log.d("GOOGLE_LOGIN", "idToken for verification: $idToken")
                 }
 
+                if (idToken.isBlank()) {
+                    Log.e("GOOGLE_LOGIN", "idToken is empty - cannot proceed with API call")
+                    _navEvents.send(AuthNavEvent.ShowError("Google 인증 토큰을 받지 못했어요.\n다시 시도해주세요."))
+                    return@launch
+                }
+
                 val result = authRepository.googleLogin(idToken)
                 result.fold(
                     onSuccess = { response ->

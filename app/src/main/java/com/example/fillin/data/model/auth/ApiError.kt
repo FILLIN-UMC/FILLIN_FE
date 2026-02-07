@@ -13,6 +13,7 @@ data class ApiError(
     @SerializedName("status") val status: String? = null,
     @SerializedName("code") val code: String? = null,
     @SerializedName("message") val message: String? = null,
+    @SerializedName("data") val data: String? = null, // 에러 상세 (예: SQL 메시지)
     @SerializedName("detail") val detail: String? = null,
     @SerializedName("title") val title: String? = null,
     @SerializedName("error") val error: String? = null,
@@ -35,6 +36,12 @@ object ApiErrorParser {
             Log.d(TAG, "API error: HTTP $code, body length=${body?.length ?: 0}, body='$body'")
             if (body.isNullOrBlank()) return defaultMessage
             val error = gson.fromJson(body, ApiError::class.java)
+            // 동일 이메일로 다른 소셜 가입 시 DB unique 제약 위반 (백엔드 미처리 시 400 + SQL 메시지)
+            if (error?.data?.contains("Duplicate entry", ignoreCase = true) == true &&
+                error.data?.contains("member", ignoreCase = true) == true
+            ) {
+                return "해당 이메일은 이미 다른 로그인 방식으로 가입되어 있습니다.\n기존 로그인 방식을 사용해주세요."
+            }
             val msg = error?.message?.takeIf { it.isNotBlank() }
                 ?: error?.detail?.takeIf { it.isNotBlank() }
                 ?: error?.errorDescription?.takeIf { it.isNotBlank() }
