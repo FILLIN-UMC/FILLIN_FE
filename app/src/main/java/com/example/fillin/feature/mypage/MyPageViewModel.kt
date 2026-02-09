@@ -54,6 +54,8 @@ class MyPageViewModel(
         val profileResult = mypageRepository.getProfile()
         val countResult = mypageRepository.getReportCount()
         val categoryResult = mypageRepository.getReportCategory()
+        val rankResult = mypageRepository.getRanks()
+        val missionsResult = mypageRepository.getMissions()
         val reportsResult = mypageRepository.getMyReports()
         val likedReportsResult = mypageRepository.getLikedReports()
         val expireSoonResult = mypageRepository.getReportExpireSoon()
@@ -80,17 +82,23 @@ class MyPageViewModel(
 
         val totalReports = count?.totalReportCount ?: 0
         val totalViews = count?.totalViewCount ?: 0
-        val dangerCount = category?.dangerCount ?: 0
-        val inconvenienceCount = category?.inconvenienceCount ?: 0
-        val discoveryCount = category?.discoveryCount ?: 0
+        val rankData = rankResult.getOrNull()?.data
+        val missions = missionsResult.getOrNull()?.data ?: emptyList()
+        val dangerMission = missions.find { it.category == "DANGER" }
+        val inconvenMission = missions.find { it.category == "INCONVENIENCE" }
+        val discoveryMission = missions.find { it.category == "DISCOVERY" }
+        val danger = (dangerMission?.currentCount ?: category?.dangerCount ?: 0) to (dangerMission?.targetCount ?: 5)
+        val inconvenience = (inconvenMission?.currentCount ?: category?.inconvenienceCount ?: 0) to (inconvenMission?.targetCount ?: 5)
+        val discovery = (discoveryMission?.currentCount ?: category?.discoveryCount ?: 0) to (discoveryMission?.targetCount ?: 5)
 
         val summary = MyPageSummary(
             nickname = profile?.nickname ?: appPreferences.getNickname(),
             totalReports = totalReports,
             totalViews = totalViews,
-            danger = dangerCount to 5,
-            inconvenience = inconvenienceCount to 5,
-            discoveryCount = discoveryCount
+            achievement = rankData?.achievement,
+            danger = danger,
+            inconvenience = inconvenience,
+            discovery = discovery
         )
 
         val reportCards = reports.map { item ->
@@ -182,9 +190,10 @@ class MyPageViewModel(
             nickname = appPreferences.getNickname(),
             totalReports = totalReports,
             totalViews = totalViews,
+            achievement = null,
             danger = dangerCount to 5,
             inconvenience = inconvenienceCount to 5,
-            discoveryCount = discoveryCount
+            discovery = discoveryCount to 5
         )
 
         val reports = updatedUserReports.map { reportWithLocation ->

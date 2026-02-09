@@ -18,9 +18,11 @@ data class MyPageSummary(
     val nickname: String,
     val totalReports: Int,
     val totalViews: Int,
-    val danger: Pair<Int, Int>,        // count to goal
-    val inconvenience: Pair<Int, Int>, // count to goal
-    val discoveryCount: Int            // 발견 제보 개수
+    /** achievement from API: ROOKIE, VETERAN, MASTER (null이면 totalReports로 계산) */
+    val achievement: String? = null,
+    val danger: Pair<Int, Int>,        // (currentCount, targetCount)
+    val inconvenience: Pair<Int, Int>, // (currentCount, targetCount)
+    val discovery: Pair<Int, Int>      // (currentCount, targetCount)
 )
 
 data class MyReportCard(

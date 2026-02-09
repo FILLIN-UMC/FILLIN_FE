@@ -53,6 +53,10 @@ class MypageRepository(private val context: Context) {
         api.getRanks()
     }
 
+    suspend fun getMissions() = runCatching {
+        api.getMissions()
+    }
+
     suspend fun getNotificationSettings() = runCatching {
         api.getNotificationSettings()
     }

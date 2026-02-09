@@ -325,11 +325,13 @@ private fun MyPageContent(
                 nickname = uiState.summary.nickname,
                 totalReports = uiState.summary.totalReports,
                 totalViews = uiState.summary.totalViews,
+                achievement = uiState.summary.achievement,
                 dangerCount = uiState.summary.danger.first,
                 dangerGoal = uiState.summary.danger.second,
                 inconvenienceCount = uiState.summary.inconvenience.first,
                 inconvenienceGoal = uiState.summary.inconvenience.second,
-                discoveryCount = uiState.summary.discoveryCount,
+                discoveryCount = uiState.summary.discovery.first,
+                discoveryGoal = uiState.summary.discovery.second,
                 reports = uiState.reports,
                 likedReports = uiState.likedReports,
                 onNotificationsClick = onNavigateNotifications,
@@ -350,11 +352,13 @@ private fun MyPageSuccess(
     nickname: String,
     totalReports: Int,
     totalViews: Int,
+    achievement: String? = null,
     dangerCount: Int,
     dangerGoal: Int,
     inconvenienceCount: Int,
     inconvenienceGoal: Int,
     discoveryCount: Int,
+    discoveryGoal: Int = 5,
     reports: List<MyReportCard>,
     likedReports: List<MyReportCard>,
     onNotificationsClick: () -> Unit,
@@ -580,8 +584,13 @@ private fun MyPageSuccess(
 
                 Spacer(Modifier.height(22.dp))
 
-                // Mission section title with info icon + badge tooltip
+                // Mission section title with info icon + badge tooltip (achievement from API 우선)
                 val currentBadge = when {
+                    achievement != null -> when (achievement.uppercase()) {
+                        "MASTER" -> "마스터"
+                        "VETERAN" -> "베테랑"
+                        else -> "루키"
+                    }
                     totalReports >= 30 -> "마스터"
                     totalReports >= 10 -> "베테랑"
                     else -> "루키"
@@ -651,6 +660,7 @@ private fun MyPageSuccess(
                         iconRes = R.drawable.ic_warning,
                         emoji = null,
                         count = dangerCount,
+                        targetCount = dangerGoal,
                         leftColor = Color(0xFFFF6060)
                     )
                     MissionCardSmall(
@@ -659,11 +669,13 @@ private fun MyPageSuccess(
                         iconRes = R.drawable.ic_inconvenience,
                         emoji = null,
                         count = inconvenienceCount,
+                        targetCount = inconvenienceGoal,
                         leftColor = Color(0xFF252526)
                     )
                     DiscoveryMissionCard(
                         modifier = Modifier.weight(1f),
-                        count = discoveryCount
+                        count = discoveryCount,
+                        targetCount = discoveryGoal
                     )
                 }
 
@@ -744,7 +756,8 @@ private fun TagChip(
 @Composable
 private fun DiscoveryMissionCard(
     modifier: Modifier = Modifier,
-    count: Int
+    count: Int,
+    targetCount: Int = 0
 ) {
     val shape = RoundedCornerShape(14.dp)
     Surface(
@@ -763,8 +776,9 @@ private fun DiscoveryMissionCard(
             Text("👀", fontSize = 22.sp)
             Spacer(Modifier.weight(1f))
 
+            val countText = if (targetCount > 0) "$count/$targetCount" else count.toString()
             Text(
-                text = count.toString(),
+                text = countText,
                 fontWeight = FontWeight.ExtraBold,
                 color = Color(0xFF555659),
                 fontSize = 16.sp
@@ -981,6 +995,7 @@ private fun MissionCardSmall(
     iconRes: Int? = null,
     emoji: String? = null,
     count: Int,
+    targetCount: Int = 0,
     leftColor: Color
 ) {
     val shape = RoundedCornerShape(14.dp)
@@ -1010,7 +1025,8 @@ private fun MissionCardSmall(
             }
             Spacer(Modifier.height(14.dp))
             Row {
-                Text("$count", fontWeight = FontWeight.ExtraBold, color = Color(0xFF555659))
+                val countText = if (targetCount > 0) "$count/$targetCount" else "$count"
+                Text(countText, fontWeight = FontWeight.ExtraBold, color = Color(0xFF555659))
             }
         }
     }
@@ -1128,7 +1144,7 @@ private fun MyPageScreenPreview() {
             totalViews = 50,
             danger = 1 to 5,
             inconvenience = 0 to 5,
-            discoveryCount = 1
+            discovery = 1 to 5
         ),
         reports = listOf(
             MyReportCard(1, "행복길 2129-11", "가는길 255m", null, null, 5),

@@ -1,5 +1,6 @@
 package com.example.fillin.data.api
 
+import com.example.fillin.data.model.mypage.MissionStatusResponse
 import com.example.fillin.data.model.mypage.MyReportCategoryResponse
 import com.example.fillin.data.model.mypage.MyReportListResponse
 import com.example.fillin.data.model.mypage.NicknameCheckResponse
@@ -44,6 +45,9 @@ interface MypageApiService {
 
     @GET("api/mypage/profile/ranks")
     suspend fun getRanks(): RankResponse
+
+    @GET("api/mypage/missions")
+    suspend fun getMissions(): MissionStatusResponse
 
     // ---- 알림 설정 ----
     @GET("api/mypage/profile/notiSet")
