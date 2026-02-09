@@ -120,6 +120,7 @@ import com.example.fillin.data.AppPreferences
 import com.example.fillin.data.SharedReportData
 import com.example.fillin.data.api.TokenManager
 import com.example.fillin.data.model.auth.ApiErrorParser
+import com.example.fillin.data.repository.AuthRepository
 import com.example.fillin.data.repository.MypageRepository
 import com.example.fillin.ui.login.AuthViewModel
 import com.example.fillin.ui.login.AuthViewModelFactory
@@ -130,6 +131,7 @@ import kotlinx.coroutines.launch
 import android.content.ContextWrapper
 import android.content.Intent
 import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import retrofit2.HttpException
 import com.example.fillin.MainActivity
@@ -329,6 +331,7 @@ private fun MyPageContent(
                 inconvenienceGoal = uiState.summary.inconvenience.second,
                 discoveryCount = uiState.summary.discoveryCount,
                 reports = uiState.reports,
+                likedReports = uiState.likedReports,
                 onNotificationsClick = onNavigateNotifications,
                 onNavigateProfileEdit = onNavigateProfileEdit,
                 onNavigateSettings = onNavigateSettings,
@@ -353,6 +356,7 @@ private fun MyPageSuccess(
     inconvenienceGoal: Int,
     discoveryCount: Int,
     reports: List<MyReportCard>,
+    likedReports: List<MyReportCard>,
     onNotificationsClick: () -> Unit,
     onNavigateProfileEdit: () -> Unit,
     onNavigateSettings: () -> Unit,
@@ -673,11 +677,6 @@ private fun MyPageSuccess(
                 )
                 Spacer(Modifier.height(12.dp))
 
-                // 나의 제보에서 삭제한 제보는 저장한 제보에서 제외
-                val userDeletedFromRegistered = remember { SharedReportData.loadUserDeletedFromRegisteredIds(context) }
-                val filteredReports = reports.filter { it.id !in userDeletedFromRegistered }
-
-                // 2-column grid using rows (pairs)
                 val savedScrollState = rememberScrollState()
 
                 Row(
@@ -686,7 +685,7 @@ private fun MyPageSuccess(
                         .horizontalScroll(savedScrollState),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    filteredReports.forEach { r ->
+                    likedReports.forEach { r ->
                         SavedReportCard(
                             modifier = Modifier.width(170.dp),
                             title = r.title,
@@ -1579,12 +1578,15 @@ fun SettingsScreen(navController: NavController) {
         factory = AuthViewModelFactory(context, appPreferences)
     )
     val mypageRepository = remember(context) { MypageRepository(context) }
+    val authRepository = remember(context) { AuthRepository(context) }
     val coroutineScope = rememberCoroutineScope()
     val isLoggedIn = TokenManager.getBearerToken(context) != null
     
     var reportNoti by remember { mutableStateOf(true) }
     var showDeleteAllReportsDialog by remember { mutableStateOf(false) }
     var isDeletingReports by remember { mutableStateOf(false) }
+    var showWithdrawDialog by remember { mutableStateOf(false) }
+    var isWithdrawing by remember { mutableStateOf(false) }
     var feedbackNoti by remember { mutableStateOf(true) }
     var serviceNoti by remember { mutableStateOf(true) }
 
@@ -1790,11 +1792,102 @@ fun SettingsScreen(navController: NavController) {
                 fontWeight = FontWeight.SemiBold,
                 color = Color(0xFF252526),
                 fontSize = 18.sp,
-                lineHeight = 18.sp
+                lineHeight = 18.sp,
+                modifier = Modifier.clickable {
+                    if (isLoggedIn) {
+                        showWithdrawDialog = true
+                    } else {
+                        Toast.makeText(context, "로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
+                    }
+                }
             )
 
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    // 회원 탈퇴 확인 다이얼로그
+    if (showWithdrawDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!isWithdrawing) showWithdrawDialog = false },
+            title = { Text("회원 탈퇴") },
+            text = {
+                Text("정말 탈퇴하시겠습니까? 탈퇴 시 계정이 비활성화됩니다.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            isWithdrawing = true
+                            // 탈퇴 전 토큰 재발급으로 만료된 accessToken 갱신 (구글/카카오 공통)
+                            authRepository.reissueToken()
+                            var result = mypageRepository.withdraw()
+                            // 401 시 재발급 후 재시도
+                            if (result.isFailure && result.exceptionOrNull() is HttpException) {
+                                val ex = result.exceptionOrNull() as HttpException
+                                if (ex.code() == 401) {
+                                    authRepository.reissueToken().onSuccess {
+                                        result = mypageRepository.withdraw()
+                                    }
+                                }
+                            }
+                            isWithdrawing = false
+                            showWithdrawDialog = false
+                            result.onSuccess { response ->
+                                authViewModel.logout()
+                                Toast.makeText(
+                                    context,
+                                    response.data?.ifBlank { "탈퇴가 완료되었습니다." } ?: response.message ?: "탈퇴가 완료되었습니다.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                activity?.let {
+                                    val intent = Intent(it, MainActivity::class.java)
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    it.startActivity(intent)
+                                    it.finish()
+                                }
+                            }.onFailure { e ->
+                                Log.e("Withdraw", "탈퇴 API 실패: ${e.javaClass.simpleName}", e)
+                                if (e is HttpException) {
+                                    Log.e("Withdraw", "HTTP ${e.code()}, body=${e.response()?.errorBody()?.string()}")
+                                }
+                                val message = when {
+                                    e is HttpException && e.code() == 401 ->
+                                        "로그인이 만료되었습니다. 다시 로그인해주세요."
+                                    e is HttpException && e.code() == 403 ->
+                                        "탈퇴 권한이 없습니다. 다시 로그인해주세요."
+                                    e is HttpException ->
+                                        ApiErrorParser.getMessage(e, "탈퇴에 실패했습니다.")
+                                    e is java.net.UnknownHostException ->
+                                        "네트워크 연결을 확인해주세요."
+                                    e is java.net.SocketTimeoutException ->
+                                        "네트워크 연결이 불안정합니다. 다시 시도해주세요."
+                                    else ->
+                                        e.message ?: "탈퇴에 실패했습니다."
+                                }
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))
+                ) {
+                    if (isWithdrawing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text("탈퇴하기")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { if (!isWithdrawing) showWithdrawDialog = false }) {
+                    Text("취소", color = Color(0xFF4595E5))
+                }
+            }
+        )
     }
 
     // 등록한 제보 모두 삭제 확인 다이얼로그

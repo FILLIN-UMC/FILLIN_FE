@@ -55,6 +55,7 @@ class MyPageViewModel(
         val countResult = mypageRepository.getReportCount()
         val categoryResult = mypageRepository.getReportCategory()
         val reportsResult = mypageRepository.getMyReports()
+        val likedReportsResult = mypageRepository.getLikedReports()
         val expireSoonResult = mypageRepository.getReportExpireSoon()
 
         if (profileResult.isFailure || countResult.isFailure || reportsResult.isFailure) {
@@ -67,6 +68,7 @@ class MyPageViewModel(
         val count = countResult.getOrNull()?.data
         val category = categoryResult.getOrNull()?.data
         val reports = reportsResult.getOrNull()?.data ?: emptyList()
+        val likedReports = likedReportsResult.getOrNull()?.data ?: emptyList()
         val expireSoon = expireSoonResult.getOrNull()?.data
 
         if (profile != null) {
@@ -102,9 +104,20 @@ class MyPageViewModel(
             )
         }
 
+        val likedReportCards = likedReports.map { item ->
+            MyReportCard(
+                id = item.reportId ?: 0L,
+                title = item.title ?: "",
+                meta = item.address ?: "",
+                imageResId = null,
+                imageUrl = item.reportImageUrl,
+                viewCount = item.viewCount
+            )
+        }
+
         val expiringNoticeList = buildExpiringNoticeList(expireSoon)
 
-        _uiState.value = MyPageUiState.Success(summary, reportCards, expiringNoticeList)
+        _uiState.value = MyPageUiState.Success(summary, reportCards, likedReportCards, expiringNoticeList)
     }
 
     private fun buildExpiringNoticeList(expireSoon: com.example.fillin.data.model.mypage.ReportExpireSoonData?): List<ExpiringReportNotice> {
@@ -215,7 +228,7 @@ class MyPageViewModel(
             }
         }
 
-        _uiState.value = MyPageUiState.Success(summary, reports, expiringNoticeList)
+        _uiState.value = MyPageUiState.Success(summary, reports, likedReports = emptyList(), expiringNoticeList)
     }
 
     private fun updateNickname(newNickname: String) {

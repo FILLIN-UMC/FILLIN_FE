@@ -37,6 +37,8 @@ sealed interface MyPageUiState {
     data class Success(
         val summary: MyPageSummary,
         val reports: List<MyReportCard>,
+        /** 저장한 제보 (좋아요한 제보) - GET /api/mypage/reports/like */
+        val likedReports: List<MyReportCard> = emptyList(),
         /** EXPIRING 제보를 daysLeft별 그룹화, 남은 기간 많은 순 (사라질 제보 알림 순차 표시) */
         val expiringNoticeList: List<ExpiringReportNotice> = emptyList()
     ) : MyPageUiState

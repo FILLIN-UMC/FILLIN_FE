@@ -68,6 +68,7 @@ fun ReportCard(
     selectedFeedback: String? = null, // "positive" | "negative" | null
     isLiked: Boolean = report.isLiked, // 좋아요 상태 (기본값은 report.isLiked)
     feedbackButtonsEnabled: Boolean = true, // false면 피드백 버튼 비활성(사라질 제보 화면 등)
+    showLikeButton: Boolean = true, // false면 좋아요 버튼 숨김 (본인 제보는 저장 불가)
     onPositiveFeedback: () -> Unit = {},
     onNegativeFeedback: () -> Unit = {},
     onLikeToggle: () -> Unit = {}
@@ -322,17 +323,18 @@ fun ReportCard(
                     )
                 }
 
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFF7FBFF))
-                        .clickable { onLikeToggle() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (isLiked) {
-                        // 그라데이션 적용된 아이콘 (방사형)
-                        Image(
+                if (showLikeButton) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFF7FBFF))
+                            .clickable { onLikeToggle() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isLiked) {
+                            // 그라데이션 적용된 아이콘 (방사형)
+                            Image(
                             painter = painterResource(id = R.drawable.ic_like),
                             contentDescription = null,
                             modifier = Modifier
@@ -379,6 +381,7 @@ fun ReportCard(
                         )
                     }
                 }
+            }
             }
 
             Spacer(Modifier.height(20.dp))

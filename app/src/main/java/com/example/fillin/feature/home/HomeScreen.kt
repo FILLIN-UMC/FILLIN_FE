@@ -474,11 +474,10 @@ fun HomeScreen(
 
         val isLoggedIn = TokenManager.getBearerToken(context) != null
         var reports = if (isLoggedIn) {
-            // 로그인: 내 제보만
-            val result = mypageRepository.getMyReports()
-            val data = result.getOrNull()?.data
-            Log.d("HomeScreen", "[제보 로드] 로그인됨 → getMyReports() 호출, 응답 개수=${data?.size ?: 0}, 성공=${result.isSuccess}")
-            data?.mapNotNull { item ->
+            // 로그인: 내 제보 + 인기 제보 (다른 사람 제보에 좋아요 가능하도록)
+            val myResult = mypageRepository.getMyReports()
+            val myData = myResult.getOrNull()?.data
+            val myReports = myData?.mapNotNull { item ->
                 val reportId = item.reportId ?: return@mapNotNull null
                 val lat = item.latitude ?: defaultLat
                 val lon = item.longitude ?: defaultLon
@@ -505,6 +504,39 @@ fun HomeScreen(
                     longitude = lon
                 )
             }?.distinctBy { it.report.id } ?: emptyList()
+            val popResult = reportRepository.getPopularReports()
+            val popularList = popResult.getOrNull()?.data?.popularReports
+            val myIds = myReports.map { it.report.id }.toSet()
+            val popularReports = popularList?.mapNotNull { item ->
+                val reportId = item.id ?: return@mapNotNull null
+                if (reportId in myIds) return@mapNotNull null
+                val lat = item.latitude ?: defaultLat
+                val lon = item.longitude ?: defaultLon
+                val reportType = when (item.category) {
+                    "DANGER" -> ReportType.DANGER
+                    "INCONVENIENCE" -> ReportType.INCONVENIENCE
+                    "DISCOVERY" -> ReportType.DISCOVERY
+                    else -> ReportType.DISCOVERY
+                }
+                ReportWithLocation(
+                    report = Report(
+                        id = reportId,
+                        documentId = reportId.toString(),
+                        title = item.address ?: "",
+                        meta = item.title ?: "",
+                        type = reportType,
+                        viewCount = item.viewCount,
+                        status = ReportStatus.ACTIVE,
+                        imageUrl = null,
+                        isUserOwned = false,
+                        reporterInfo = null
+                    ),
+                    latitude = lat,
+                    longitude = lon
+                )
+            } ?: emptyList()
+            Log.d("HomeScreen", "[제보 로드] 로그인됨 → 내 제보 ${myReports.size}개 + 인기 제보 ${popularReports.size}개 (저장 가능)")
+            myReports + popularReports
         } else {
             // 비로그인: 인기 제보 (최대 6개)
             val result = reportRepository.getPopularReports()
@@ -691,8 +723,14 @@ fun HomeScreen(
         reportDetail = null
         detailLoadError = null
         showLoginPrompt = false
-        val reportId = selectedReport?.report?.id ?: return@LaunchedEffect
-        val docId = selectedReport?.report?.documentId?.toLongOrNull() ?: reportId
+        val report = selectedReport?.report ?: return@LaunchedEffect
+        val docId = report.documentId?.toLongOrNull()
+        // documentId가 Long으로 변환 불가면 백엔드에 없는 제보(Firestore 등) → API 호출 스킵
+        if (docId == null) {
+            isLoadingDetail = false
+            Log.d("HomeScreen", "제보 상세 API 스킵: documentId가 백엔드 ID가 아님 (reportId=${report.id})")
+            return@LaunchedEffect
+        }
         isLoadingDetail = true
         val result = reportRepository.getReportDetail(docId)
         isLoadingDetail = false
@@ -702,12 +740,13 @@ fun HomeScreen(
                 Log.d("HomeScreen", "제보 상세 API 성공: reportId=${data.reportId}")
             }
         }.onFailure { e ->
-            Log.w("HomeScreen", "제보 상세 API 실패: reportId=$reportId", e)
+            Log.w("HomeScreen", "제보 상세 API 실패: reportId=${report.id}, docId=$docId", e)
             val isUnauthorized = (e as? HttpException)?.code() == 401
-            if (isUnauthorized) {
-                showLoginPrompt = true
-            } else {
-                detailLoadError = "상세 정보를 불러오지 못했습니다"
+            val isNotFound = (e as? HttpException)?.code() == 404
+            when {
+                isUnauthorized -> showLoginPrompt = true
+                isNotFound -> Log.d("HomeScreen", "제보를 찾을 수 없음 (404) - 기본 정보만 표시")
+                else -> detailLoadError = "상세 정보를 불러오지 못했습니다"
             }
         }
     }
@@ -1669,6 +1708,7 @@ fun HomeScreen(
                                 .clickable(enabled = false) { }, // 카드 내부 클릭 방지
                         selectedFeedback = userFeedbackSelections[reportCardUi.reportId],
                         isLiked = userLikeStates[reportCardUi.reportId] ?: reportCardUi.isLiked,
+                        showLikeButton = !currentReportWithLocation.report.isUserOwned, // 본인 제보는 저장 불가
                         onPositiveFeedback = {
                             updateFeedback(reportCardUi.reportId, true)
                             // selectedReport 업데이트
