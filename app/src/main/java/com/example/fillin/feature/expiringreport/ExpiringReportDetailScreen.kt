@@ -65,9 +65,66 @@ import com.example.fillin.ui.components.ReportCardUi
 import com.example.fillin.ui.components.ValidityStatus
 import com.example.fillin.data.SharedReportData
 import com.example.fillin.data.ReportStatusManager
+import com.example.fillin.data.api.TokenManager
 import com.example.fillin.data.db.FirestoreRepository
+import com.example.fillin.data.model.mypage.ReportExpireSoonDetailItem
+import com.example.fillin.data.repository.MypageRepository
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.concurrent.TimeUnit
+
+private fun mapExpireSoonItemToCardUi(item: ReportExpireSoonDetailItem): ReportCardUi {
+    val reportId = item.reportId ?: 0L
+    val (typeLabel, typeColor) = when (item.reportCategory) {
+        "DANGER" -> "위험" to Color(0xFFFF6060)
+        "INCONVENIENCE" -> "불편" to Color(0xFFF5C72F)
+        else -> "발견" to Color(0xFF29C488)
+    }
+    val userBadge = when (item.achievement) {
+        "VETERAN" -> "베테랑"
+        "MASTER" -> "마스터"
+        else -> "루키"
+    }
+    val createdLabel = item.createAt?.let { s ->
+        try {
+            val trimmed = s.take(19) // "yyyy-MM-dd'T'HH:mm:ss"
+            val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
+            val date = fmt.parse(trimmed)
+            if (date != null) {
+                val days = TimeUnit.MILLISECONDS.toDays(System.currentTimeMillis() - date.time)
+                when {
+                    days == 0L -> "오늘"
+                    days == 1L -> "1일 전"
+                    days < 7 -> "${days}일 전"
+                    days < 30 -> "${days / 7}주 전"
+                    else -> "${days / 30}달 전"
+                }
+            } else "만료 예정"
+        } catch (_: Exception) { "만료 예정" }
+    } ?: "만료 예정"
+    return ReportCardUi(
+        reportId = reportId,
+        validityStatus = ValidityStatus.INVALID,
+        imageRes = R.drawable.ic_report_img,
+        imageUrl = item.reportImageUrl,
+        views = item.viewCount,
+        typeLabel = typeLabel,
+        typeColor = typeColor,
+        userName = "제보자",
+        userBadge = userBadge,
+        profileImageUrl = item.profileImageUrl,
+        title = item.title ?: "",
+        createdLabel = createdLabel,
+        address = item.address ?: "",
+        distance = "",
+        okCount = item.doneCount,
+        dangerCount = item.nowCount,
+        isLiked = false
+    )
+}
 
 @Preview(showBackground = true, name = "ExpiringReportDetail")
 @Composable
@@ -82,8 +139,27 @@ fun ExpiringReportDetailScreen(navController: NavController) {
     val backgroundColor = Color(0xFFF7FBFF)
     val context = LocalContext.current
     val firestoreRepository = remember { FirestoreRepository() }
+    val mypageRepository = remember(context) { MypageRepository(context) }
     val scope = rememberCoroutineScope()
-    
+    val isLoggedIn = TokenManager.getBearerToken(context) != null
+
+    var apiExpiringReports by remember { mutableStateOf<List<ReportCardUi>>(emptyList()) }
+    var apiExpiringHelpCount by remember { mutableStateOf(0) }
+    var isLoadingApi by remember { mutableStateOf(isLoggedIn) }
+    LaunchedEffect(isLoggedIn) {
+        if (!isLoggedIn) {
+            apiExpiringReports = emptyList()
+            apiExpiringHelpCount = 0
+            isLoadingApi = false
+            return@LaunchedEffect
+        }
+        isLoadingApi = true
+        val items = mypageRepository.getReportExpireSoonDetail().getOrNull()?.data ?: emptyList()
+        apiExpiringReports = items.map { mapExpireSoonItemToCardUi(it) }
+        apiExpiringHelpCount = items.sumOf { it.doneCount + it.nowCount }
+        isLoadingApi = false
+    }
+
     // 사용자 피드백 선택 상태 추적 (reportId -> "positive" | "negative" | null)
     var userFeedbackSelections by remember(context) { 
         mutableStateOf(SharedReportData.loadUserFeedbackSelections(context))
@@ -269,11 +345,10 @@ fun ExpiringReportDetailScreen(navController: NavController) {
                 modifier = Modifier.align(Alignment.Center)
             )
         }
-        // Example data (later replace with backend-connected data)
-        val expiringReports = remember {
+        val expiringReports = if (isLoggedIn && apiExpiringReports.isNotEmpty()) apiExpiringReports else remember {
             listOf(
                 ReportCardUi(
-                    reportId = 1L, // 임시 ID
+                    reportId = 1L,
                     validityStatus = ValidityStatus.INVALID,
                     imageRes = R.drawable.ic_report_img,
                     views = 5,
@@ -290,7 +365,7 @@ fun ExpiringReportDetailScreen(navController: NavController) {
                     isLiked = true
                 ),
                 ReportCardUi(
-                    reportId = 2L, // 임시 ID
+                    reportId = 2L,
                     validityStatus = ValidityStatus.INVALID,
                     imageRes = R.drawable.ic_report_img,
                     views = 12,
@@ -308,9 +383,15 @@ fun ExpiringReportDetailScreen(navController: NavController) {
                 )
             )
         }
+        val totalHelpCount = if (isLoggedIn && apiExpiringReports.isNotEmpty()) apiExpiringHelpCount else 20
 
         Spacer(Modifier.height(10.dp))
 
+        if (isLoggedIn && isLoadingApi) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                androidx.compose.material3.CircularProgressIndicator()
+            }
+        } else {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 0.dp, end = 0.dp, top = 0.dp, bottom = 24.dp)
@@ -325,7 +406,7 @@ fun ExpiringReportDetailScreen(navController: NavController) {
                                 color = Color(0xFF4595E5),
                                 fontWeight = FontWeight.ExtraBold
                             )
-                        ) { append("20명") }
+                        ) { append("${totalHelpCount}명") }
                         append("에게 도움이 되었어요!")
                     },
                     color = Color(0xFF252526),
@@ -360,6 +441,7 @@ fun ExpiringReportDetailScreen(navController: NavController) {
                 )
                 Spacer(Modifier.height(32.dp))
             }
+        }
         }
         }
     }

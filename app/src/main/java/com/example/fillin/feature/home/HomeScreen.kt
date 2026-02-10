@@ -270,6 +270,9 @@ fun HomeScreen(
     // === [MainScreen에서 전달된 제보 플로우 처리] ===
     val backStackEntry = navController?.currentBackStackEntry
     val savedStateHandle = backStackEntry?.savedStateHandle
+    LaunchedEffect(backStackEntry) {
+        userDeletedFromRegistered = SharedReportData.loadUserDeletedFromRegisteredIds(context)
+    }
     
     // savedStateHandle의 변경을 감지하기 위해 주기적으로 체크
     // savedStateHandle.set() 후 즉시 감지되지 않을 수 있으므로 주기적 체크 사용

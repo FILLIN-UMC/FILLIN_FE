@@ -1919,7 +1919,13 @@ fun SettingsScreen(navController: NavController) {
                     onClick = {
                         coroutineScope.launch {
                             isDeletingReports = true
+                            val reportIdsBeforeDelete = mypageRepository.getMyReports().getOrNull()?.data?.mapNotNull { it.reportId } ?: emptyList()
                             val count = mypageRepository.deleteAllMyReports()
+                            if (count != null && count > 0) {
+                                reportIdsBeforeDelete.forEach { id ->
+                                    SharedReportData.addUserDeletedFromRegisteredId(context, id)
+                                }
+                            }
                             isDeletingReports = false
                             showDeleteAllReportsDialog = false
                             Toast.makeText(
