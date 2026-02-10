@@ -18,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -37,7 +38,11 @@ import com.example.fillin.ui.components.TabSpec
 import com.example.fillin.ui.navigation.MainNavGraph
 import com.example.fillin.ui.main.MainTab
 import com.example.fillin.data.AppPreferences
+import com.example.fillin.data.api.TokenManager
+import com.example.fillin.data.repository.MemberRepository
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.tasks.await
 
 @Composable
 fun MainScreen(
@@ -45,19 +50,21 @@ fun MainScreen(
     appPreferences: AppPreferences
 ) {
     val innerNavController = rememberNavController()
-    // FCM 토큰 등록: firebase-messaging 의존성 추가 후 아래 주석 해제
-    // LaunchedEffect(Unit) {
-    //     val context = LocalContext.current
-    //     if (TokenManager.getBearerToken(context) != null) {
-    //         runCatching {
-    //             val token = FirebaseMessaging.getInstance().token.await()
-    //             if (token.isNotBlank()) {
-    //                 MemberRepository(context).registerFcmToken(token)
-    //                 Log.d("FCM", "FCM token registered")
-    //             }
-    //         }.onFailure { e -> Log.e("FCM", "Failed to register FCM token", e) }
-    //     }
-    // }
+    val context = LocalContext.current
+    val accessToken = TokenManager.getAccessToken(context)
+    LaunchedEffect(accessToken) {
+        // FCM 토큰 등록은 온보딩용 tempToken이 아니라 accessToken이 있을 때만 수행
+        if (accessToken != null) {
+            runCatching {
+                val token = FirebaseMessaging.getInstance().token.await()
+                if (token.isNotBlank()) {
+                    MemberRepository(context).registerFcmToken(token)
+                        .onSuccess { Log.d("FCM", "FCM token registered") }
+                        .onFailure { e -> Log.e("FCM", "Failed to register FCM token", e) }
+                }
+            }.onFailure { e -> Log.e("FCM", "FCM token error", e) }
+        }
+    }
     val backStackEntry by innerNavController.currentBackStackEntryAsState()
     val currentRoute: String? = backStackEntry?.destination?.route
 

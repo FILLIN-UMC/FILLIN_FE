@@ -19,7 +19,13 @@ class AuthTokenInterceptor(private val context: Context) : Interceptor {
             return chain.proceed(request)
         }
 
-        val token = TokenManager.getBearerToken(context)
+        // 온보딩은 tempToken으로만 호출 (백엔드 스펙)
+        // 그 외 일반 API는 accessToken으로만 호출 (tempToken을 일반 API에 쓰면 403 가능)
+        val token = if (url.contains("/api/auth/onboarding")) {
+            TokenManager.getTempToken(context)
+        } else {
+            TokenManager.getAccessToken(context)
+        }
         val newRequest = if (token != null) {
             request.newBuilder()
                 .header("Authorization", "Bearer $token")
