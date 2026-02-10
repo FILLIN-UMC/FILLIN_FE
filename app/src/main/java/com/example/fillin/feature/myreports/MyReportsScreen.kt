@@ -13,6 +13,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,15 +32,47 @@ import androidx.navigation.compose.rememberNavController
 import com.example.fillin.R
 import com.example.fillin.data.ReportStatusManager
 import com.example.fillin.data.SharedReportData
+import com.example.fillin.data.api.TokenManager
+import com.example.fillin.data.model.mypage.MyReportItem
+import com.example.fillin.data.repository.MypageRepository
 import com.example.fillin.domain.model.ReportStatus
+import kotlinx.coroutines.launch
+import android.widget.Toast
 import com.example.fillin.domain.model.ReportType
 import com.example.fillin.feature.home.ReportWithLocation
 import com.example.fillin.ui.theme.FILLINTheme
 
 private enum class MyReportsTab { REGISTERED, EXPIRED }
 
+private fun mapApiItemToUi(item: MyReportItem): MyReportUi {
+    val reportId = item.reportId ?: 0L
+    val (badgeText, badgeBg) = when (item.reportCategory) {
+        "DANGER" -> "위험" to Color(0xFFFF6060)
+        "INCONVENIENCE" -> "불편" to Color(0xFFF5C72F)
+        else -> "발견" to Color(0xFF29C488)
+    }
+    var addressClean = (item.address ?: "").replace(
+        Regex("^[가-힣]+(?:시|도)\\s+[가-힣]+(?:구|시)\\s*"), ""
+    ).replace(Regex("\\s*[가-힣]*역\\s*\\d+번\\s*출구\\s*앞"), "").trim()
+    if (addressClean.isEmpty()) addressClean = item.title ?: ""
+    return MyReportUi(
+        id = reportId,
+        backendReportId = reportId,
+        badgeText = badgeText,
+        badgeBg = badgeBg,
+        viewCount = item.viewCount,
+        titleTop = addressClean,
+        titleBottom = item.title ?: "",
+        placeName = "",
+        imageResId = null,
+        imageUrl = item.reportImageUrl
+    )
+}
+
 data class MyReportUi(
     val id: Long,
+    /** API 삭제 시 사용할 백엔드 reportId. documentId가 숫자 문자열이면 해당 값, 없으면 null */
+    val backendReportId: Long? = null,
     val badgeText: String, // "발견" / "불편" 등
     val badgeBg: Color,
     val viewCount: Int, // 좌측 상단 조회수
@@ -53,21 +86,48 @@ data class MyReportUi(
 @Composable
 fun MyReportsScreen(navController: NavController) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val mypageRepository = remember(context) { MypageRepository(context) }
+    val isLoggedIn = TokenManager.getBearerToken(context) != null
     var tab by remember { mutableStateOf(MyReportsTab.REGISTERED) }
     var editMode by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<MyReportUi?>(null) }
 
-    // SharedReportData에서 제보 데이터 가져오기 및 상태 업데이트
+    // 로그인 시 API에서 등록된/사라진 제보 목록 로드 (서버 reportId로 삭제 가능)
+    var apiRegistered by remember { mutableStateOf<List<MyReportUi>>(emptyList()) }
+    var apiExpired by remember { mutableStateOf<List<MyReportUi>>(emptyList()) }
+    var isLoadingApi by remember { mutableStateOf(isLoggedIn) }
+    var refreshTrigger by remember { mutableIntStateOf(0) }
+    var locallyPermanentlyDeletedIds by remember { mutableStateOf(setOf<Long>()) }
+    // 화면에 들어올 때마다 API 목록 재조회 (새로 등록한 제보가 곧바로 보이도록)
+    var compositionCount by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        compositionCount++
+    }
+    LaunchedEffect(isLoggedIn, refreshTrigger, compositionCount) {
+        if (!isLoggedIn) {
+            apiRegistered = emptyList()
+            apiExpired = emptyList()
+            isLoadingApi = false
+            return@LaunchedEffect
+        }
+        isLoadingApi = true
+        val reg = mypageRepository.getMyReports().getOrNull()?.data?.map { mapApiItemToUi(it) } ?: emptyList()
+        val exp = mypageRepository.getMyReportsExpired().getOrNull()?.data?.map { mapApiItemToUi(it) } ?: emptyList()
+        apiRegistered = reg
+        apiExpired = exp
+        isLoadingApi = false
+    }
+
+    // SharedReportData에서 제보 데이터 가져오기 (비로그인 또는 API 로드 전 fallback)
     val userReports = remember {
         val reports = SharedReportData.getUserReports()
-        // 제보 상태 업데이트 (피드백 조건에 따라 EXPIRING/EXPIRED 상태로 변경)
         reports.map { reportWithLocation ->
             val updatedReport = ReportStatusManager.updateReportStatus(reportWithLocation.report)
             reportWithLocation.copy(report = updatedReport)
         }
     }
 
-    // 사용자가 삭제한 제보 ID (SharedPreferences에 저장되어 화면 재진입 시에도 유지)
     val deletedFromRegistered = remember {
         SharedReportData.loadUserDeletedFromRegisteredIds(context)
     }
@@ -97,8 +157,10 @@ fun MyReportsScreen(navController: NavController) {
             ""
         ).trim()
         
+        val backendReportId = report.documentId?.toLongOrNull()
         return MyReportUi(
             id = report.id,
+            backendReportId = backendReportId,
             badgeText = badgeText,
             badgeBg = badgeBg,
             viewCount = report.viewCount,
@@ -220,8 +282,15 @@ fun MyReportsScreen(navController: NavController) {
 
         Spacer(Modifier.height(16.dp))
 
-        val list = if (tab == MyReportsTab.REGISTERED) registered else expired
+        val displayRegistered = if (isLoggedIn && !isLoadingApi) apiRegistered else registered
+        val displayExpired = if (isLoggedIn && !isLoadingApi) apiExpired.filter { it.id !in permanentlyDeleted && it.id !in locallyPermanentlyDeletedIds } else expired
+        val list = if (tab == MyReportsTab.REGISTERED) displayRegistered else displayExpired
 
+        if (isLoggedIn && isLoadingApi) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                androidx.compose.material3.CircularProgressIndicator()
+            }
+        } else {
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             modifier = Modifier
@@ -238,6 +307,7 @@ fun MyReportsScreen(navController: NavController) {
                     onDeleteClick = { pendingDelete = item }
                 )
             }
+        }
         }
 
         // Delete confirm dialog
@@ -265,26 +335,39 @@ fun MyReportsScreen(navController: NavController) {
                             val target = pendingDelete
                             if (target != null) {
                                 if (tab == MyReportsTab.REGISTERED) {
-                                    // Remove from registered, move to expired (SharedPreferences에 저장)
-                                    val removed = registered.removeAll { it.id == target.id }
-                                    if (removed) {
-                                        SharedReportData.addUserDeletedFromRegisteredId(context, target.id)
-                                        expired.add(0, target)
+                                    if (isLoggedIn) {
+                                        scope.launch {
+                                            mypageRepository.deleteReport(target.id)
+                                                .onSuccess { refreshTrigger++ }
+                                                .onFailure {
+                                                    Toast.makeText(context, "삭제에 실패했어요.", Toast.LENGTH_SHORT).show()
+                                                }
+                                        }
+                                    } else {
+                                        val removed = registered.removeAll { it.id == target.id }
+                                        if (removed) {
+                                            SharedReportData.addUserDeletedFromRegisteredId(context, target.id)
+                                            expired.add(0, target)
+                                        }
                                     }
                                 } else {
-                                    // 사라진 제보에서 완전 삭제 (SharedPreferences 저장 + 메모리에서 제거)
-                                    val removed = expired.removeAll { it.id == target.id }
-                                    if (removed) {
+                                    // 사라진 제보에서 완전 삭제
+                                    if (isLoggedIn) {
+                                        locallyPermanentlyDeletedIds = locallyPermanentlyDeletedIds + target.id
                                         SharedReportData.addUserPermanentlyDeletedId(context, target.id)
-                                        SharedReportData.removeReport(target.id)
+                                    } else {
+                                        val removed = expired.removeAll { it.id == target.id }
+                                        if (removed) {
+                                            SharedReportData.addUserPermanentlyDeletedId(context, target.id)
+                                            SharedReportData.removeReport(target.id)
+                                        }
                                     }
                                 }
                             }
 
                             pendingDelete = null
 
-                            // If the current tab list becomes empty, exit edit mode
-                            val currentListEmpty = if (tab == MyReportsTab.REGISTERED) registered.isEmpty() else expired.isEmpty()
+                            val currentListEmpty = if (tab == MyReportsTab.REGISTERED) displayRegistered.isEmpty() else displayExpired.isEmpty()
                             if (currentListEmpty) editMode = false
                         }
                     ) {
