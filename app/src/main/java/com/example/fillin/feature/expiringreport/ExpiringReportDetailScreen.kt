@@ -271,7 +271,9 @@ fun ExpiringReportDetailScreen(navController: NavController) {
             }
         }
         val permanentlyDeletedIds = SharedReportData.loadUserPermanentlyDeletedIds(context)
-        SharedReportData.setReports(updatedReports.filter { it.report.id !in permanentlyDeletedIds })
+        val listToStore = updatedReports.filter { it.report.id !in permanentlyDeletedIds }
+        SharedReportData.setReports(listToStore)
+        SharedReportData.persist(context, listToStore)
     }
 
     val view = LocalView.current

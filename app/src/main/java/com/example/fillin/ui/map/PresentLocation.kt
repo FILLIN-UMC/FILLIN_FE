@@ -108,6 +108,18 @@ class PresentLocation(private val context: Context) {
     // 실시간 위치 업데이트 시작
     @SuppressLint("MissingPermission")
     fun startLocationUpdates(naverMap: NaverMap, customIcon: OverlayImage? = null) {
+        // 캐시된 위치가 있으면 즉시 마커 표시 (첫 위치 수신 전에도 보이도록)
+        fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+            location?.let {
+                if (it.latitude != 0.0 || it.longitude != 0.0) {
+                    naverMap.locationOverlay.apply {
+                        isVisible = true
+                        position = LatLng(it.latitude, it.longitude)
+                        customIcon?.let { icon = it }
+                    }
+                }
+            }
+        }
         val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000)
             .setMinUpdateIntervalMillis(500)
             .setMaxUpdateDelayMillis(2000)
@@ -116,10 +128,10 @@ class PresentLocation(private val context: Context) {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
                 locationResult.lastLocation?.let { location ->
-                    if (isValidLocation(location.latitude, location.longitude)) {
+                    // (0,0)이 아닌 모든 좌표에서 마커 표시 (한국 밖/에뮬레이터에서도 보이도록)
+                    if (location.latitude != 0.0 || location.longitude != 0.0) {
                         val latLng = LatLng(location.latitude, location.longitude)
                         val bearing = if (location.hasBearing()) location.bearing else null
-                        
                         naverMap.locationOverlay.apply {
                             isVisible = true
                             position = latLng
