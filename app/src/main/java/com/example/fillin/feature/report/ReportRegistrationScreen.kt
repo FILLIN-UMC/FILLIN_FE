@@ -30,6 +30,7 @@ import coil.compose.AsyncImage
 @Composable
 fun ReportRegistrationScreen(
     topBarTitle: String, // ★ 타이틀을 외부에서 받도록 추가
+    viewModel: ReportViewModel,
     imageUri: Uri?,
     initialTitle: String,
     initialLocation: String,
@@ -73,7 +74,8 @@ fun ReportRegistrationScreen(
             // 제보 사진 미리보기
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 AsyncImage(
-                    model = imageUri,
+                    // viewModel의 processedImageUrl이 null이 아니면 URL을, null이면 로컬 Uri를 사용합니다.
+                    model = viewModel.processedImageUrl ?: imageUri,
                     contentDescription = null,
                     modifier = Modifier
                       //  .fillMaxWidth()
@@ -81,6 +83,14 @@ fun ReportRegistrationScreen(
                         .clip(RoundedCornerShape(24.dp)),
                     contentScale = ContentScale.Crop
                 )
+
+                // 전처리 중일 때 빙글빙글 도는 로딩 표시
+                if (viewModel.isProcessingImage) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(44.dp),
+                        color = Color.White // 이미지 위에서 잘 보이게 흰색
+                    )
+                }
             }
 
             Spacer(Modifier.height(16.dp))

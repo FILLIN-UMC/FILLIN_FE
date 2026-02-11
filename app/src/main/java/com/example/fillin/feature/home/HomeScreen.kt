@@ -212,7 +212,14 @@ fun HomeScreen(
     val reportRepository = remember(context) { ReportRepository(context) }
     val reportViewModel: ReportViewModel = viewModel(factory = ReportViewModelFactory(reportRepository))
     val scope = rememberCoroutineScope()
-    
+
+    // ✨ [추가] 사진이 촬영되거나 선택되자마자 전처리(모자이크)를 시작하는 로직
+    LaunchedEffect(capturedUri) {
+        capturedUri?.let { uri ->
+            Log.d("ReportDebug", "CapturedUri 감지 - 전처리(번호판 감지)를 시작합니다: $uri")
+            reportViewModel.prepareImage(uri)
+        }
+    }
     // === [권한 Launcher] ===
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -1504,6 +1511,7 @@ fun HomeScreen(
             Box(modifier = Modifier.fillMaxSize()) {
                 ReportRegistrationScreen(
                     topBarTitle = "실시간 제보",
+                    viewModel = reportViewModel,
                     imageUri = capturedUri,
                     initialTitle = geminiViewModel.aiResult,
                     initialLocation = finalLocation.ifEmpty { currentAddress },
@@ -1512,7 +1520,7 @@ fun HomeScreen(
                     onRegister = { category, title, location, uri ->
                         val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
                         val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
-                        reportViewModel.uploadReport(category, title, location, uri, lat, lon)
+                        reportViewModel.uploadReport(category, title, uri, location, lat, lon)
                     }
                 )
                 if (isMapPickingMode) {
@@ -1574,10 +1582,7 @@ fun HomeScreen(
             )
         }
         
-        // [4. AI 분석 중 / 제보 등록 중 로딩 오버레이]
-        if (geminiViewModel.isAnalyzing || reportViewModel.isUploading) {
-            AiLoadingOverlay(isUploading = reportViewModel.isUploading)
-        }
+
         
         // [5. 지난 상황 제보 - 위치 설정 화면]
         if (isPastReportLocationMode) {
@@ -1626,6 +1631,7 @@ fun HomeScreen(
             geminiViewModel.aiResult.isNotEmpty() && !geminiViewModel.isAnalyzing) {
             ReportRegistrationScreen(
                 topBarTitle = "지난 상황 제보",
+                viewModel = reportViewModel,
                 imageUri = capturedUri,
                 initialTitle = geminiViewModel.aiResult,
                 initialLocation = finalLocation,
@@ -1640,9 +1646,14 @@ fun HomeScreen(
                     // 지난 상황 제보: 사용자가 선택한 위치 좌표 사용 (위치 설정 화면에서 선택한 곳)
                     val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
                     val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
-                    reportViewModel.uploadReport(category, title, location, uri, lat, lon)
+                    reportViewModel.uploadReport(category, title, uri, location, lat, lon)
                 }
             )
+        }
+
+        // [4. AI 분석 중 / 제보 등록 중 로딩 오버레이]
+        if (geminiViewModel.isAnalyzing || reportViewModel.isUploading) {
+            AiLoadingOverlay(isUploading = reportViewModel.isUploading)
         }
         
         // 상단 알림 배너 (제보 카드가 표시되어도 그대로 표시, 단 제보 흐름 진행 중에는 숨김)

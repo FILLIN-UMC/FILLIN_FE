@@ -56,6 +56,7 @@ class AuthViewModel(
             _uiState.value = AuthUiState(isLoading = true)
 
             val kakaoToken = getKakaoAccessToken(context, activity)
+            Log.d("KAKAO_LOGIN", "2. 카카오 토큰 결과: $kakaoToken") // 토큰 확인 로그
             if (kakaoToken == null) {
                 _uiState.value = AuthUiState(isLoading = false)
                 _navEvents.send(
