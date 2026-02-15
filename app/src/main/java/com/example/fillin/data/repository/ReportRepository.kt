@@ -6,7 +6,6 @@ import android.util.Log
 import com.example.fillin.data.api.ReportApiService
 import com.example.fillin.data.api.RetrofitClient
 import com.example.fillin.data.api.TokenManager
-import com.example.fillin.data.db.FirestoreRepository
 import com.example.fillin.data.db.UploadedReportResult
 import com.example.fillin.data.model.report.PopularReportListResponse
 import com.example.fillin.data.model.report.ReportApiResponse
@@ -27,12 +26,11 @@ import java.io.FileOutputStream
 /**
  * 제보 등록 Repository
  * - 로그인 시: 백엔드 API (POST /api/reports) 사용
- * - 비로그인 또는 API 실패 시: Firestore fallback
+ * - 비로그인 또는 API 실패 시: null 반환 (백엔드 전용)
  */
 class ReportRepository(private val context: Context) {
 
     private val api: ReportApiService = RetrofitClient.getReportApi(context)
-    private val firestoreRepository = FirestoreRepository()
     private val gson = Gson()
 
     suspend fun uploadReport(
@@ -46,26 +44,20 @@ class ReportRepository(private val context: Context) {
         val hasToken = TokenManager.getBearerToken(context) != null
         Log.d("ReportRepository", "제보 등록 시도: hasToken=$hasToken")
 
-        if (hasToken) {
-            Log.d("ReportRepository", "API로 제보 등록 시도 중...")
-            val apiResult = uploadReportViaApi(category, title, location, imageUri, latitude, longitude)
-            if (apiResult != null) {
-                Log.d("ReportRepository", "API 제보 등록 성공: reportId=${apiResult.documentId}")
-                return apiResult
-            }
-            Log.w("ReportRepository", "API 제보 등록 실패, Firestore fallback")
-        } else {
-            Log.d("ReportRepository", "토큰 없음 → Firestore로 저장")
+        if (!hasToken) {
+            Log.d("ReportRepository", "토큰 없음 → 제보 등록 불가 (로그인 필요)")
+            return null
         }
 
-        return firestoreRepository.uploadReport(
-            category = category,
-            title = title,
-            location = location,
-            imageUri = imageUri,
-            latitude = latitude,
-            longitude = longitude
-        )
+        Log.d("ReportRepository", "API로 제보 등록 시도 중...")
+        val apiResult = uploadReportViaApi(category, title, location, imageUri, latitude, longitude)
+        return if (apiResult != null) {
+            Log.d("ReportRepository", "API 제보 등록 성공: reportId=${apiResult.documentId}")
+            apiResult
+        } else {
+            Log.w("ReportRepository", "API 제보 등록 실패")
+            null
+        }
     }
 
     private suspend fun uploadReportViaApi(
@@ -112,9 +104,6 @@ class ReportRepository(private val context: Context) {
             is HttpException -> {
                 val body = e.response()?.errorBody()?.string() ?: ""
                 Log.e("ReportRepository", "API 오류: ${e.code()} ${e.message()}, body=$body")
-                if (e.code() == 401 || e.code() == 403) {
-                    Log.w("ReportRepository", "인증 실패 → Firestore fallback")
-                }
             }
             else -> Log.e("ReportRepository", "제보 등록 실패", e)
         }

@@ -66,9 +66,9 @@ import com.example.fillin.ui.components.ValidityStatus
 import com.example.fillin.data.SharedReportData
 import com.example.fillin.data.ReportStatusManager
 import com.example.fillin.data.api.TokenManager
-import com.example.fillin.data.db.FirestoreRepository
 import com.example.fillin.data.model.mypage.ReportExpireSoonDetailItem
 import com.example.fillin.data.repository.MypageRepository
+import com.example.fillin.data.repository.ReportRepository
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
@@ -138,8 +138,8 @@ private fun ExpiringReportDetailPreview() {
 fun ExpiringReportDetailScreen(navController: NavController) {
     val backgroundColor = Color(0xFFF7FBFF)
     val context = LocalContext.current
-    val firestoreRepository = remember { FirestoreRepository() }
     val mypageRepository = remember(context) { MypageRepository(context) }
+    val reportRepository = remember(context) { ReportRepository(context) }
     val scope = rememberCoroutineScope()
     val isLoggedIn = TokenManager.getBearerToken(context) != null
 
@@ -170,16 +170,18 @@ fun ExpiringReportDetailScreen(navController: NavController) {
         mutableStateOf(SharedReportData.loadUserLikeStates(context))
     }
     
-    // 좋아요 토글 함수
-    fun toggleLike(reportId: Long) {
-        val reportWithLocation = SharedReportData.getReports().find { it.report.id == reportId } ?: return
-        val currentLikeState = userLikeStates[reportId] ?: reportWithLocation.report.isSaved
+    // 좋아요 토글 함수 (로그인 시 백엔드 API 사용)
+    fun toggleLike(reportId: Long, defaultIsLiked: Boolean) {
+        val currentLikeState = userLikeStates[reportId] ?: defaultIsLiked
         val newLikeState = !currentLikeState
         userLikeStates = userLikeStates + (reportId to newLikeState)
         SharedReportData.saveUserLikeState(context, reportId, newLikeState)
-        reportWithLocation.report.documentId?.let { docId ->
+        if (isLoggedIn) {
             scope.launch {
-                firestoreRepository.updateReportLike(docId, "guest_user", newLikeState)
+                reportRepository.likeToggle(reportId).onFailure {
+                    userLikeStates = userLikeStates + (reportId to currentLikeState)
+                    SharedReportData.saveUserLikeState(context, reportId, currentLikeState)
+                }
             }
         }
     }
@@ -239,32 +241,24 @@ fun ExpiringReportDetailScreen(navController: NavController) {
                 )
                 updatedReport = ReportStatusManager.updateValiditySustainedTimestamps(updatedReport)
                 updatedReport = ReportStatusManager.updateReportStatus(updatedReport)
-                updatedReport.documentId?.let { docId ->
+                val backendReportId = updatedReport.documentId?.toLongOrNull()
+                if (backendReportId != null && isLoggedIn && newSelection != null) {
                     scope.launch {
-                        firestoreRepository.updateReportFeedback(
-                            docId,
-                            updatedPositiveCount,
-                            updatedNegativeCount,
-                            updatedReport.positive70SustainedSinceMillis,
-                            updatedReport.positive40to60SustainedSinceMillis,
-                            updatedNegativeTimestamps,
-                            updatedReport.feedbackConditionMetAtMillis,
-                            updatedReport.expiringAtMillis
-                        )
+                        val feedbackType = if (newSelection == "positive") "NOW" else "DONE"
+                        reportRepository.createFeedback(backendReportId, feedbackType)
                     }
-                } ?: run {
-                    SharedReportData.saveFeedbackToPreferences(
-                        context,
-                        reportId,
-                        updatedPositiveCount,
-                        updatedNegativeCount,
-                        updatedReport.positive70SustainedSinceMillis,
-                        updatedReport.positive40to60SustainedSinceMillis,
-                        updatedNegativeTimestamps,
-                        updatedReport.feedbackConditionMetAtMillis,
-                        updatedReport.expiringAtMillis
-                    )
                 }
+                SharedReportData.saveFeedbackToPreferences(
+                    context,
+                    reportId,
+                    updatedPositiveCount,
+                    updatedNegativeCount,
+                    updatedReport.positive70SustainedSinceMillis,
+                    updatedReport.positive40to60SustainedSinceMillis,
+                    updatedNegativeTimestamps,
+                    updatedReport.feedbackConditionMetAtMillis,
+                    updatedReport.expiringAtMillis
+                )
                 reportWithLocation.copy(report = updatedReport)
             } else {
                 reportWithLocation
@@ -438,7 +432,7 @@ fun ExpiringReportDetailScreen(navController: NavController) {
                     onPositiveFeedback = {},
                     onNegativeFeedback = {},
                     onLikeToggle = {
-                        toggleLike(report.reportId)
+                        toggleLike(report.reportId, report.isLiked)
                     }
                 )
                 Spacer(Modifier.height(32.dp))

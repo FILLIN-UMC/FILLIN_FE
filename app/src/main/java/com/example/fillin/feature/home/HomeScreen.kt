@@ -68,7 +68,6 @@ import com.example.fillin.data.AppPreferences
 import com.example.fillin.data.ReportStatusManager
 import com.example.fillin.data.SampleReportData
 import com.example.fillin.data.SharedReportData
-import com.example.fillin.data.db.ReportDocument
 import com.example.fillin.data.db.UploadedReportResult
 import com.example.fillin.data.api.TokenManager
 import com.example.fillin.data.model.mypage.MyReportItem
@@ -1559,9 +1558,13 @@ fun HomeScreen(
                     onLocationFieldClick = { isMapPickingMode = true },
                     onDismiss = { geminiViewModel.clearResult() },
                     onRegister = { category, title, location, uri ->
-                        val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
-                        val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
-                        reportViewModel.uploadReport(category, title, location, uri, lat, lon)
+                        if (TokenManager.getBearerToken(context) != null) {
+                            val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
+                            val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
+                            reportViewModel.uploadReport(category, title, location, uri, lat, lon)
+                        } else {
+                            Toast.makeText(context, "로그인 후 제보를 등록할 수 있습니다.", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 )
                 if (isMapPickingMode) {
@@ -1686,10 +1689,13 @@ fun HomeScreen(
                     geminiViewModel.clearResult()
                 },
                 onRegister = { category, title, location, uri ->
-                    // 지난 상황 제보: 사용자가 선택한 위치 좌표 사용 (위치 설정 화면에서 선택한 곳)
-                    val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
-                    val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
-                    reportViewModel.uploadReport(category, title, location, uri, lat, lon)
+                    if (TokenManager.getBearerToken(context) != null) {
+                        val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
+                        val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
+                        reportViewModel.uploadReport(category, title, location, uri, lat, lon)
+                    } else {
+                        Toast.makeText(context, "로그인 후 제보를 등록할 수 있습니다.", Toast.LENGTH_SHORT).show()
+                    }
                 }
             )
         }
