@@ -82,13 +82,20 @@ class ReportRepository(private val context: Context) {
             latitude = latitude,
             longitude = longitude,
             category = reportCategory,
+            reportImageUrl = finalImageUrl // 👈 S3에 저장된 모자이크 URL 전달
         )
         val requestBody = gson.toJson(request).toRequestBody("application/json".toMediaTypeOrNull())
 
         // [중요 로직] 모자이크 이미지 URL이 있다면 이를 서버에 알리거나 처리하는 로직 필요
         // 현재 Swagger(image_f1f483)는 파일을 직접 받으므로, 여기서는 원본 imagePart를 보냅니다.
         // 만약 백엔드에서 finalImageUrl을 JSON(request)에 넣어달라고 하면 DTO 수정을 해야 합니다.
-        val imagePart = uriToPart(imageUri)
+        // 💡 [핵심 수정] 모자이크 URL이 있으면 파일(image)은 null로 보냅니다.
+        // 이렇게 해야 서버가 새로 보낸 원본 파일로 덮어쓰지 않고 URL을 사용합니다.
+        val imagePart = if (finalImageUrl != null) {
+            null
+        } else {
+            uriToPart(imageUri)
+        }
 
         val response = api.createReport(request = requestBody, image = imagePart)
         val reportId = response.data
