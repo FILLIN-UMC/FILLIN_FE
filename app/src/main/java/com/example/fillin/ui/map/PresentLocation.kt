@@ -166,27 +166,40 @@ class PresentLocation(private val context: Context) {
     }
 
     /**
-     * 모든 에러를 방지하는 가장 안정적인 주소 변환 함수
+     * 모든 에러를 방지하는 가장 안정적인 주소 변환 함수.
+     * 도로명 주소(시/도 + 구/군 + 도로명 + 건물번호)를 우선 반환하고,
+     * 도로명 정보가 없으면 getAddressLine(0) 결과를 반환한다.
      */
     fun getAddressFromCoords(lat: Double, lng: Double, callback: (String) -> Unit) {
-        // Geocoder 초기화
         val geocoder = android.location.Geocoder(context, java.util.Locale.KOREA)
 
         try {
-            // [핵심] 최신/구형 가리지 않고 가장 잘 작동하는 동기식 함수 사용
             @Suppress("DEPRECATION")
             val addresses = geocoder.getFromLocation(lat, lng, 1)
 
             if (!addresses.isNullOrEmpty()) {
-                val fullAddress = addresses[0].getAddressLine(0)
-                callback(cleanAddress(fullAddress))
+                val addr = addresses[0]
+                val roadAddress = buildRoadAddress(addr)
+                val result = if (roadAddress.isNotBlank()) roadAddress else addr.getAddressLine(0).orEmpty()
+                callback(cleanAddress(result))
             } else {
                 callback("주소를 찾을 수 없는 지역입니다")
             }
         } catch (e: Exception) {
-            // 네트워크 연결이 없거나 서비스가 중단된 경우
             callback("주소 로딩 실패 (네트워크 확인)")
         }
+    }
+
+    /**
+     * Address에서 도로명 주소 조합: 시/도 + 구/군 + 도로명 + 건물번호
+     * 도로명(thoroughfare)이 없으면 빈 문자열 반환 → getAddressLine(0) 폴백
+     */
+    private fun buildRoadAddress(addr: Address): String {
+        val thoroughfare = addr.thoroughfare?.takeIf { it.isNotBlank() } ?: return ""
+        val adminArea = addr.adminArea?.takeIf { it.isNotBlank() }
+        val subLocality = addr.subLocality?.takeIf { it.isNotBlank() }
+        val subThoroughfare = addr.subThoroughfare?.takeIf { it.isNotBlank() }
+        return listOfNotNull(adminArea, subLocality, thoroughfare, subThoroughfare).joinToString(" ")
     }
 
     /**

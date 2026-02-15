@@ -130,7 +130,7 @@ class ReportRepository(private val context: Context) {
         if (reportId != null) {
             return UploadedReportResult(
                 documentId = reportId.toString(),
-                // 💡 수정: 등록 즉시 지도 마커에 모자이크 이미지를 보여주기 위해 URL 할당
+                // 💡 중요: finalImageUrl이 있으면 그걸 쓰고, 없으면 로컬 URI라도 써야 합니다.
                 imageUrl = finalImageUrl ?: imageUri.toString(),
                 imageUri = imageUri,
                 category = category,
