@@ -497,6 +497,9 @@ fun HomeScreen(
                 val reportId = item.reportId ?: return@mapNotNull null
                 val lat = item.latitude ?: defaultLat
                 val lon = item.longitude ?: defaultLon
+                // API에 주소가 없으면 기존 목록의 주소 유지 (마이페이지 다녀온 후 새 제보 주소 사라짐 방지)
+                val existing = updatedSampleReports.find { it.report.id == reportId }
+                val addressStr = item.address?.takeIf { it.isNotBlank() } ?: existing?.report?.title ?: ""
                 val reportType = when (item.reportCategory) {
                     "DANGER" -> ReportType.DANGER
                     "INCONVENIENCE" -> ReportType.INCONVENIENCE
@@ -507,7 +510,7 @@ fun HomeScreen(
                     report = Report(
                         id = reportId,
                         documentId = reportId.toString(),
-                        title = item.address ?: "",
+                        title = addressStr,
                         meta = item.title ?: "",
                         type = reportType,
                         viewCount = item.viewCount,
@@ -683,6 +686,9 @@ fun HomeScreen(
                         val isNewUpload = (uploaded != null && reportId == (uploaded.documentId.toLongOrNull() ?: uploaded.documentId.hashCode().toLong().and(0x7FFFFFFFL).coerceAtLeast(10000L)))
                         val itemLat = item.latitude ?: if (isNewUpload) uploadLat else defaultLat
                         val itemLon = item.longitude ?: if (isNewUpload) uploadLon else defaultLon
+                        val existing = updatedSampleReports.find { it.report.id == reportId }
+                        val addressStr = item.address?.takeIf { it.isNotBlank() }
+                            ?: if (isNewUpload) (uploaded?.location ?: "") else (existing?.report?.title ?: "")
                         val itemType = when (item.reportCategory) {
                             "DANGER" -> ReportType.DANGER
                             "INCONVENIENCE" -> ReportType.INCONVENIENCE
@@ -693,7 +699,7 @@ fun HomeScreen(
                             report = Report(
                                 id = reportId,
                                 documentId = reportId.toString(),
-                                title = item.address ?: if (isNewUpload) (uploaded?.location ?: "") else "",
+                                title = addressStr,
                                 meta = item.title ?: "",
                                 type = itemType,
                                 viewCount = item.viewCount,
