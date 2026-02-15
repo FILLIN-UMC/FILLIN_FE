@@ -15,6 +15,7 @@ data class ReportImageDetailResponse(
 
 data class ReportImageDetailData(
     @SerializedName("writerId") val writerId: Long? = null,
+    @SerializedName("nickname") val nickname: String? = null,
     @SerializedName("achievement") val achievement: String? = null,
     @SerializedName("profileImageUrl") val profileImageUrl: String? = null,
     @SerializedName("reportId") val reportId: Long? = null,

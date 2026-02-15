@@ -46,6 +46,7 @@ data class ReportCardUi(
     val userName: String,
     val userBadge: String,
     val profileImageUrl: String? = null, // 작성자 프로필 이미지 URL
+    val profileImageUri: Uri? = null, // 작성자 프로필 로컬 이미지 (본인 제보 시 앱에 저장된 이미지)
     val title: String,
     val createdLabel: String,
     val address: String,
@@ -230,20 +231,31 @@ fun ReportCard(
                             .background(Color(0xFFE5E7EB)),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (!report.profileImageUrl.isNullOrBlank()) {
-                            coil.compose.AsyncImage(
-                                model = report.profileImageUrl,
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            Image(
-                                painter = painterResource(id = R.drawable.ic_user_img),
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
+                        when {
+                            report.profileImageUri != null -> {
+                                coil.compose.AsyncImage(
+                                    model = report.profileImageUri,
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                            !report.profileImageUrl.isNullOrBlank() -> {
+                                coil.compose.AsyncImage(
+                                    model = report.profileImageUrl,
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                            else -> {
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_user_img),
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
                         }
                     }
                     Spacer(Modifier.width(6.dp))

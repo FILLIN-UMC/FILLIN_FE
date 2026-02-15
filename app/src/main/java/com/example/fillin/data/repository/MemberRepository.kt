@@ -6,7 +6,7 @@ import com.example.fillin.data.api.MemberApiService
 import com.example.fillin.data.api.RetrofitClient
 
 /**
- * 회원 API Repository (FCM 토큰 등록 등)
+ * 회원 API Repository (FCM 토큰 등록, 회원 프로필 조회 등)
  */
 class MemberRepository(private val context: Context) {
 
@@ -15,4 +15,8 @@ class MemberRepository(private val context: Context) {
     suspend fun registerFcmToken(fcmToken: String) = runCatching {
         api.registerFcmToken(FcmTokenRequest(fcmToken = fcmToken))
     }
+
+    suspend fun getMemberNickname(memberId: Long): String? = runCatching {
+        api.getMemberProfile(memberId).data?.nickname?.takeIf { it.isNotBlank() }
+    }.getOrNull()
 }
