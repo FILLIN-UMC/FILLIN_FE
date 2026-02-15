@@ -23,15 +23,22 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.pow
+import kotlin.math.sin
+import kotlin.math.sqrt
 import androidx.navigation.NavController
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.fillin.R
 import com.example.fillin.data.ReportStatusManager
 import com.example.fillin.data.SharedReportData
+import com.example.fillin.data.location.LocationProvider
 import com.example.fillin.data.api.TokenManager
 import com.example.fillin.data.model.mypage.MyReportItem
 import com.example.fillin.data.repository.MypageRepository
@@ -44,17 +51,19 @@ import com.example.fillin.ui.theme.FILLINTheme
 
 private enum class MyReportsTab { REGISTERED, EXPIRED }
 
-private fun mapApiItemToUi(item: MyReportItem): MyReportUi {
+private fun mapApiItemToUi(item: MyReportItem, context: android.content.Context): MyReportUi {
     val reportId = item.reportId ?: 0L
     val (badgeText, badgeBg) = when (item.reportCategory) {
         "DANGER" -> "위험" to Color(0xFFFF6060)
         "INCONVENIENCE" -> "불편" to Color(0xFFF5C72F)
         else -> "발견" to Color(0xFF29C488)
     }
-    var addressClean = (item.address ?: "").replace(
+    val addressClean = (item.address ?: "").replace(
         Regex("^[가-힣]+(?:시|도)\\s+[가-힣]+(?:구|시)\\s*"), ""
     ).replace(Regex("\\s*[가-힣]*역\\s*\\d+번\\s*출구\\s*앞"), "").trim()
-    if (addressClean.isEmpty()) addressClean = item.title ?: ""
+        .ifEmpty { item.title ?: "" }
+    val userLatLng = LocationProvider(context).getLatLng()
+    val distance = formatDistance(userLatLng, item.latitude, item.longitude)
     return MyReportUi(
         id = reportId,
         backendReportId = reportId,
@@ -62,11 +71,27 @@ private fun mapApiItemToUi(item: MyReportItem): MyReportUi {
         badgeBg = badgeBg,
         viewCount = item.viewCount,
         titleTop = addressClean,
-        titleBottom = item.title ?: "",
-        placeName = "",
+        titleBottom = distance,
+        placeName = item.title ?: "",
         imageResId = null,
         imageUrl = item.reportImageUrl
     )
+}
+
+private fun formatDistance(userLatLng: Pair<Double, Double>?, lat: Double?, lon: Double?): String {
+    if (userLatLng == null || lat == null || lon == null) return ""
+    val meters = calculateDistanceMeters(userLatLng.first, userLatLng.second, lat, lon)
+    return "가는길 ${meters.toInt()}m"
+}
+
+private fun calculateDistanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+    val earthRadius = 6371000.0
+    val dLat = Math.toRadians(lat2 - lat1)
+    val dLon = Math.toRadians(lon2 - lon1)
+    val a = sin(dLat / 2).pow(2) +
+            cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLon / 2).pow(2)
+    val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    return earthRadius * c
 }
 
 data class MyReportUi(
@@ -112,8 +137,8 @@ fun MyReportsScreen(navController: NavController) {
             return@LaunchedEffect
         }
         isLoadingApi = true
-        val reg = mypageRepository.getMyReports().getOrNull()?.data?.map { mapApiItemToUi(it) } ?: emptyList()
-        val exp = mypageRepository.getMyReportsExpired().getOrNull()?.data?.map { mapApiItemToUi(it) } ?: emptyList()
+        val reg = mypageRepository.getMyReports().getOrNull()?.data?.map { mapApiItemToUi(it, context) } ?: emptyList()
+        val exp = mypageRepository.getMyReportsExpired().getOrNull()?.data?.map { mapApiItemToUi(it, context) } ?: emptyList()
         apiRegistered = reg
         apiExpired = exp
         isLoadingApi = false
@@ -136,6 +161,7 @@ fun MyReportsScreen(navController: NavController) {
     }
     
     // ReportWithLocation을 MyReportUi로 변환하는 헬퍼 함수
+    val userLatLng = remember(context) { LocationProvider(context).getLatLng() }
     fun convertToMyReportUi(reportWithLocation: ReportWithLocation): MyReportUi {
         val report = reportWithLocation.report
         
@@ -147,16 +173,12 @@ fun MyReportsScreen(navController: NavController) {
         }
         
         // 주소에서 시/도/구 제거 및 위치 설명 제거 (실제 주소만 표시)
-        var addressWithoutCityDistrict = report.title.replace(
+        val addressWithoutCityDistrict = report.title.replace(
             Regex("^[가-힣]+(?:시|도)\\s+[가-힣]+(?:구|시)\\s*"), 
             ""
-        )
-        // "홍대입구역 1번 출구 앞", "합정역 2번 출구 앞" 같은 위치 설명 제거
-        addressWithoutCityDistrict = addressWithoutCityDistrict.replace(
-            Regex("\\s*[가-힣]*역\\s*\\d+번\\s*출구\\s*앞"), 
-            ""
-        ).trim()
+        ).replace(Regex("\\s*[가-힣]*역\\s*\\d+번\\s*출구\\s*앞"), "").trim()
         
+        val distance = formatDistance(userLatLng, reportWithLocation.latitude, reportWithLocation.longitude)
         val backendReportId = report.documentId?.toLongOrNull()
         return MyReportUi(
             id = report.id,
@@ -165,8 +187,8 @@ fun MyReportsScreen(navController: NavController) {
             badgeBg = badgeBg,
             viewCount = report.viewCount,
             titleTop = addressWithoutCityDistrict,
-            titleBottom = report.meta,
-            placeName = "", // 현재 데이터에 장소명이 없으므로 빈 문자열
+            titleBottom = distance,
+            placeName = report.meta, // Report: meta가 제보 제목 (API 매핑 시 item.title → meta)
             imageResId = report.imageResId,
             imageUrl = report.imageUrl
         )
@@ -565,16 +587,17 @@ private fun MyReportGridItem(
 
         Spacer(Modifier.height(8.dp))
 
-        // placeName이 있을 때만 표시
-        if (item.placeName.isNotEmpty()) {
-            Text(
-                text = item.placeName,
-                color = Color(0xFF252526),
-                fontWeight = FontWeight.SemiBold,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(horizontal = 6.dp)
-            )
-        }
+        // 제보 제목 (이미지 아래 표시)
+        Text(
+            text = item.placeName,
+            color = Color(0xFF252526),
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+            lineHeight = 18.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 2.dp)
+        )
     }
 }
 

@@ -8,7 +8,13 @@ import com.example.fillin.data.AppPreferences
 import com.example.fillin.data.ReportStatusManager
 import com.example.fillin.data.SharedReportData
 import com.example.fillin.data.api.TokenManager
+import com.example.fillin.data.location.LocationProvider
 import com.example.fillin.data.repository.MypageRepository
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.pow
+import kotlin.math.sin
+import kotlin.math.sqrt
 import com.example.fillin.domain.model.ReportStatus
 import com.example.fillin.domain.model.ReportType
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -105,11 +111,15 @@ class MyPageViewModel(
             discovery = discovery
         )
 
+        val userLatLng = LocationProvider(context).getLatLng()
         val reportCards = reports.map { item ->
+            val address = cleanAddress(item.address ?: "")
+            val distance = formatDistance(userLatLng, item.latitude, item.longitude)
             MyReportCard(
                 id = item.reportId ?: 0L,
-                title = item.title ?: "",
-                meta = item.address ?: "",
+                address = address.ifEmpty { item.title ?: "" },
+                distance = distance,
+                reportTitle = item.title ?: "",
                 imageResId = null,
                 imageUrl = item.reportImageUrl,
                 viewCount = item.viewCount
@@ -117,10 +127,13 @@ class MyPageViewModel(
         }
 
         val likedReportCards = likedReports.map { item ->
+            val address = cleanAddress(item.address ?: "")
+            val distance = formatDistance(userLatLng, item.latitude, item.longitude)
             MyReportCard(
                 id = item.reportId ?: 0L,
-                title = item.title ?: "",
-                meta = item.address ?: "",
+                address = address.ifEmpty { item.title ?: "" },
+                distance = distance,
+                reportTitle = item.title ?: "",
                 imageResId = null,
                 imageUrl = item.reportImageUrl,
                 viewCount = item.viewCount
@@ -130,6 +143,29 @@ class MyPageViewModel(
         val expiringNoticeList = buildExpiringNoticeList(expireSoon)
 
         _uiState.value = MyPageUiState.Success(summary, reportCards, likedReportCards, expiringNoticeList)
+    }
+
+    private fun cleanAddress(address: String): String {
+        return address
+            .replace(Regex("^[가-힣]+(?:시|도)\\s+[가-힣]+(?:구|시)\\s*"), "")
+            .replace(Regex("\\s*[가-힣]*역\\s*\\d+번\\s*출구\\s*앞"), "")
+            .trim()
+    }
+
+    private fun formatDistance(userLatLng: Pair<Double, Double>?, lat: Double?, lon: Double?): String {
+        if (userLatLng == null || lat == null || lon == null) return ""
+        val meters = calculateDistanceMeters(userLatLng.first, userLatLng.second, lat, lon)
+        return "가는길 ${meters.toInt()}m"
+    }
+
+    private fun calculateDistanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val earthRadius = 6371000.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = sin(dLat / 2).pow(2) +
+                cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLon / 2).pow(2)
+        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        return earthRadius * c
     }
 
     private fun buildExpiringNoticeList(expireSoon: com.example.fillin.data.model.mypage.ReportExpireSoonData?): List<ExpiringReportNotice> {
@@ -200,14 +236,19 @@ class MyPageViewModel(
             discovery = discoveryCount to 5
         )
 
+        val userLatLng = context?.let { LocationProvider(it).getLatLng() }
         val reports = updatedUserReports.map { reportWithLocation ->
+            val r = reportWithLocation.report
+            val address = cleanAddress(r.title)
+            val distance = formatDistance(userLatLng, reportWithLocation.latitude, reportWithLocation.longitude)
             MyReportCard(
-                id = reportWithLocation.report.id,
-                title = reportWithLocation.report.title,
-                meta = reportWithLocation.report.meta,
-                imageResId = reportWithLocation.report.imageResId,
-                imageUrl = reportWithLocation.report.imageUrl,
-                viewCount = reportWithLocation.report.viewCount
+                id = r.id,
+                address = address,
+                distance = distance,
+                reportTitle = r.meta, // 로컬 Report: meta가 제보 제목
+                imageResId = r.imageResId,
+                imageUrl = r.imageUrl,
+                viewCount = r.viewCount
             )
         }
 

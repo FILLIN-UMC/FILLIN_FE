@@ -41,22 +41,49 @@ class ReportRepository(private val context: Context) {
         latitude: Double = 0.0,
         longitude: Double = 0.0
     ): UploadedReportResult? {
-        val hasToken = TokenManager.getBearerToken(context) != null
-        Log.d("ReportRepository", "제보 등록 시도: hasToken=$hasToken")
+        // accessToken 필요 (tempToken만 있으면 403 발생)
+        val accessToken = TokenManager.getAccessToken(context)
+        Log.d("ReportRepository", "제보 등록 시도: accessToken=${accessToken != null}")
 
-        if (!hasToken) {
-            Log.d("ReportRepository", "토큰 없음 → 제보 등록 불가 (로그인 필요)")
-            return null
+        if (accessToken == null) {
+            Log.d("ReportRepository", "accessToken 없음 → 제보 등록 불가")
+            throw IllegalStateException(
+                if (TokenManager.getTempToken(context) != null)
+                    "온보딩을 완료한 후 제보를 등록할 수 있습니다."
+                else
+                    "로그인 후 제보를 등록할 수 있습니다."
+            )
         }
 
         Log.d("ReportRepository", "API로 제보 등록 시도 중...")
-        val apiResult = uploadReportViaApi(category, title, location, imageUri, latitude, longitude)
-        return if (apiResult != null) {
-            Log.d("ReportRepository", "API 제보 등록 성공: reportId=${apiResult.documentId}")
-            apiResult
-        } else {
-            Log.w("ReportRepository", "API 제보 등록 실패")
-            null
+        try {
+            val apiResult = uploadReportViaApi(category, title, location, imageUri, latitude, longitude)
+            return if (apiResult != null) {
+                Log.d("ReportRepository", "API 제보 등록 성공: reportId=${apiResult.documentId}")
+                apiResult
+            } else {
+                Log.w("ReportRepository", "API 제보 등록 실패")
+                throw RuntimeException("서버에서 응답이 없습니다.")
+            }
+        } catch (e: Exception) {
+            if (e is IllegalStateException) throw e
+            Log.e("ReportRepository", "제보 등록 실패", e)
+            val msg = when (e) {
+                is HttpException -> {
+                    val body = e.response()?.errorBody()?.string() ?: ""
+                    val code = e.code()
+                    Log.e("ReportRepository", "API 오류: $code, body=$body")
+                    when (code) {
+                        401 -> "로그인이 만료되었습니다. 다시 로그인해주세요."
+                        403 -> "접근 권한이 없습니다. 온보딩을 완료했는지 확인해주세요."
+                        400 -> "요청 형식이 올바르지 않습니다."
+                        500 -> "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+                        else -> "네트워크 연결을 확인해주세요. (코드: $code)"
+                    }
+                }
+                else -> "등록에 실패했습니다: ${e.message ?: "알 수 없는 오류"}"
+            }
+            throw RuntimeException(msg)
         }
     }
 
@@ -67,7 +94,7 @@ class ReportRepository(private val context: Context) {
         imageUri: Uri,
         latitude: Double,
         longitude: Double
-    ): UploadedReportResult? = runCatching {
+    ): UploadedReportResult? {
         val reportCategory = when (category) {
             "위험" -> ReportCategory.DANGER
             "불편" -> ReportCategory.INCONVENIENCE
@@ -89,7 +116,7 @@ class ReportRepository(private val context: Context) {
         Log.d("ReportRepository", "API 응답: reportId=$reportId, status=${response.status}")
 
         if (reportId != null) {
-            UploadedReportResult(
+            return UploadedReportResult(
                 documentId = reportId.toString(),
                 imageUrl = null,
                 imageUri = imageUri,
@@ -98,25 +125,25 @@ class ReportRepository(private val context: Context) {
                 location = location
             )
         } else {
-            null
+            return null
         }
-    }.getOrElse { e ->
-        when (e) {
-            is HttpException -> {
-                val body = e.response()?.errorBody()?.string() ?: ""
-                Log.e("ReportRepository", "API 오류: ${e.code()} ${e.message()}, body=$body")
-            }
-            else -> Log.e("ReportRepository", "제보 등록 실패", e)
-        }
-        null
     }
 
     private suspend fun uriToPart(uri: Uri): MultipartBody.Part = withContext(Dispatchers.IO) {
         val file = File(context.cacheDir, "report_${System.currentTimeMillis()}.jpg")
-        context.contentResolver.openInputStream(uri)?.use { input ->
+        val inputStream = context.contentResolver.openInputStream(uri)
+        if (inputStream == null) {
+            Log.e("ReportRepository", "이미지를 읽을 수 없습니다. openInputStream(uri) null")
+            throw RuntimeException("이미지를 읽을 수 없습니다. 다시 촬영해주세요.")
+        }
+        inputStream.use { input ->
             FileOutputStream(file).use { output ->
                 input.copyTo(output)
             }
+        }
+        if (file.length() == 0L) {
+            Log.e("ReportRepository", "이미지 파일 크기가 0바이트입니다.")
+            throw RuntimeException("이미지가 비어 있습니다. 다시 촬영해주세요.")
         }
         val requestBody = file.asRequestBody("image/*".toMediaTypeOrNull())
         MultipartBody.Part.createFormData("image", file.name, requestBody)
