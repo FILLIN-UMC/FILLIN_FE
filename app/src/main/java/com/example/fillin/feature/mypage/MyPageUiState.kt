@@ -27,8 +27,12 @@ data class MyPageSummary(
 
 data class MyReportCard(
     val id: Long,
-    val title: String,
-    val meta: String,
+    /** 주소 (이미지 내부 표시) */
+    val address: String,
+    /** 거리 "가는길 255m" (이미지 내부 표시) */
+    val distance: String,
+    /** 제보 제목 (이미지 아래 표시) */
+    val reportTitle: String,
     val imageResId: Int? = null,  // 제보 이미지 리소스 ID (로컬 리소스)
     val imageUrl: String? = null,  // 제보 이미지 URL (Firestore/Storage)
     val viewCount: Int = 0  // 조회수

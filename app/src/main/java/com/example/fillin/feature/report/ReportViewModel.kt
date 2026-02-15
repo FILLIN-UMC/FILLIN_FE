@@ -34,6 +34,9 @@ class ReportViewModel(private val repository: ReportRepository) : ViewModel() {
     /** null: 대기, true: 성공, false: 실패 */
     var uploadStatus by mutableStateOf<Boolean?>(null)
         private set
+    /** 실패 시 표시할 오류 메시지 (null이면 기본 문구 사용) */
+    var uploadErrorMessage by mutableStateOf<String?>(null)
+        private set
     /** 업로드 성공 시 지도에 추가할 새 제보 데이터 (HomeScreen에서 소비 후 clear) */
     var lastUploadedReport by mutableStateOf<UploadedReportResult?>(null)
         private set
@@ -127,6 +130,7 @@ class ReportViewModel(private val repository: ReportRepository) : ViewModel() {
             try {
                 isUploading = true
                 uploadStatus = null
+                uploadErrorMessage = null
                 lastUploadedReport = null
 
                 // 1. [병렬 호출] 분석과 전처리를 동시에 시작
@@ -170,10 +174,12 @@ class ReportViewModel(private val repository: ReportRepository) : ViewModel() {
                     lastUploadedReport = result
                 } else {
                     uploadStatus = false
+                    uploadErrorMessage = "서버에서 응답이 없습니다."
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
                 uploadStatus = false
+                uploadErrorMessage = e.message ?: "등록에 실패했습니다. 다시 시도해주세요."
             } finally {
                 isUploading = false
             }
@@ -189,6 +195,7 @@ class ReportViewModel(private val repository: ReportRepository) : ViewModel() {
 
     fun resetStatus() {
         uploadStatus = null
+        uploadErrorMessage = null
         lastUploadedReport = null
     }
 }

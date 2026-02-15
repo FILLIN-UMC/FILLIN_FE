@@ -11,6 +11,7 @@ data class ReportCreateRequest(
     @SerializedName("latitude") val latitude: Double,
     @SerializedName("longitude") val longitude: Double,
     @SerializedName("category") val category: ReportCategory,
+    @SerializedName("address") val address: String = "",
     // ✨ [추가] 모자이크 처리가 완료된 이미지의 URL을 담는 필드입니다.
     // 백엔드에서 이 URL을 확인하여 제보 이미지로 확정하게 됩니다.
     @SerializedName("reportImageUrl") val reportImageUrl: String? = null

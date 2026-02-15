@@ -697,8 +697,9 @@ private fun MyPageSuccess(
                     likedReports.forEach { r ->
                         SavedReportCard(
                             modifier = Modifier.width(170.dp),
-                            title = r.title,
-                            meta = r.meta,
+                            address = r.address,
+                            distance = r.distance,
+                            reportTitle = r.reportTitle,
                             imageResId = r.imageResId,
                             imageUrl = r.imageUrl,
                             badgeCount = r.viewCount
@@ -785,28 +786,22 @@ private fun DiscoveryMissionCard(
 @Composable
 private fun SavedReportCard(
     modifier: Modifier = Modifier,
-    title: String,
-    meta: String,
+    address: String,
+    distance: String,
+    reportTitle: String,
     imageResId: Int?,
     imageUrl: String? = null,
     badgeCount: Int
 ) {
-    // 주소에서 시/도/구 제거 및 위치 설명 제거 (실제 주소만 표시)
-    val addressWithoutCityDistrict = remember(title) {
-        // 1. 정규식으로 "서울시 마포구", "서울특별시 마포구", "경기도 성남시" 같은 패턴 제거
-        var address = title.replace(Regex("^[가-힣]+(?:시|도)\\s+[가-힣]+(?:구|시)\\s*"), "")
-        // 2. "홍대입구역 1번 출구 앞", "합정역 2번 출구 앞" 같은 위치 설명 제거
-        address = address.replace(Regex("\\s*[가-힣]*역\\s*\\d+번\\s*출구\\s*앞"), "").trim()
-        address
-    }
-    
     val shape = RoundedCornerShape(14.dp)
-    Surface(
-        modifier = modifier
-            .aspectRatio(1f),
-        shape = shape,
-        color = Color(0xFF111827)
-    ) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f),
+            shape = shape,
+            color = Color(0xFF111827)
+        ) {
         Box(
             modifier = Modifier.fillMaxSize()
         ) {
@@ -890,7 +885,7 @@ private fun SavedReportCard(
                     .padding(10.dp)
             ) {
                 Text(
-                    text = addressWithoutCityDistrict,
+                    text = address,
                     color = Color.White,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 14.sp,
@@ -900,7 +895,7 @@ private fun SavedReportCard(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = meta,
+                    text = distance,
                     color = Color(0xFFE5E7EB),
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 12.sp,
@@ -908,6 +903,17 @@ private fun SavedReportCard(
                 )
             }
         }
+    }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = reportTitle,
+            color = Color(0xFF252526),
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+            lineHeight = 18.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -1140,9 +1146,9 @@ private fun MyPageScreenPreview() {
             discovery = 1 to 5
         ),
         reports = listOf(
-            MyReportCard(1, "행복길 2129-11", "가는길 255m", null, null, 5),
-            MyReportCard(2, "행복길 2129-11", "가는길 255m", null, null, 8),
-            MyReportCard(3, "행복길 2129-11", "가는길 255m", null, null, 12)
+            MyReportCard(1, "행복길 2129-11", "가는길 255m", "붕어빵 가게", null, null, 5),
+            MyReportCard(2, "행복길 2129-11", "가는길 255m", "붕어빵 가게", null, null, 8),
+            MyReportCard(3, "행복길 2129-11", "가는길 255m", "붕어빵 가게", null, null, 12)
         )
     )
 

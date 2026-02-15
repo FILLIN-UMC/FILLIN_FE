@@ -732,7 +732,9 @@ fun HomeScreen(
             lastUploadedLatLon = null // 카메라 이동 후 초기화
             reportViewModel.scheduleClearUploadGuard(5000L) // 5초 후 가드 해제 (그동안 API 덮어쓰기 방지)
         } else if (reportViewModel.uploadStatus == false) {
-            Toast.makeText(context, "등록에 실패했습니다. 다시 시도해주세요.", Toast.LENGTH_SHORT).show()
+            val errorMsg = reportViewModel.uploadErrorMessage
+                ?: "등록에 실패했습니다. 다시 시도해주세요."
+            Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
             reportViewModel.resetStatus()
         }
     }
@@ -1566,10 +1568,13 @@ fun HomeScreen(
                     onLocationFieldClick = { isMapPickingMode = true },
                     onDismiss = { geminiViewModel.clearResult() },
                     onRegister = { category, title, location, uri ->
-                        if (TokenManager.getBearerToken(context) != null) {
+                        val accessToken = TokenManager.getAccessToken(context)
+                        if (accessToken != null) {
                             val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
                             val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
                             reportViewModel.uploadReport(category, title, uri, location, lat, lon)
+                        } else if (TokenManager.getTempToken(context) != null) {
+                            Toast.makeText(context, "온보딩을 완료한 후 제보를 등록할 수 있습니다.", Toast.LENGTH_LONG).show()
                         } else {
                             Toast.makeText(context, "로그인 후 제보를 등록할 수 있습니다.", Toast.LENGTH_SHORT).show()
                         }
@@ -1695,10 +1700,13 @@ fun HomeScreen(
                     geminiViewModel.clearResult()
                 },
                 onRegister = { category, title, location, uri ->
-                    if (TokenManager.getBearerToken(context) != null) {
+                    val accessToken = TokenManager.getAccessToken(context)
+                    if (accessToken != null) {
                         val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
                         val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
                         reportViewModel.uploadReport(category, title, uri, location, lat, lon)
+                    } else if (TokenManager.getTempToken(context) != null) {
+                        Toast.makeText(context, "온보딩을 완료한 후 제보를 등록할 수 있습니다.", Toast.LENGTH_LONG).show()
                     } else {
                         Toast.makeText(context, "로그인 후 제보를 등록할 수 있습니다.", Toast.LENGTH_SHORT).show()
                     }
@@ -1873,7 +1881,6 @@ private fun convertToReportCardUi(
     }
     
     // 제목: report.meta가 실제 제목 (예: "맨홀 뚜껑 역류")
-    // 주소: report.title이 주소 (예: "서울시 마포구 양화로 188 홍대입구역 1번 출구 앞")
     val title = report.meta // meta가 제목
     
     // 유효성 상태 계산
@@ -2121,9 +2128,9 @@ private fun NotificationBanner(
                         .clip(CircleShape)
                         .background(categoryColor)
                 )
-
+                
             Spacer(Modifier.width(8.dp))
-
+                
             // 주소와 제보 내용(meta) 표시
                 Row(
                 modifier = Modifier.wrapContentWidth(),
@@ -2137,7 +2144,7 @@ private fun NotificationBanner(
                         maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
-
+                    
                 // 제보 내용(meta) 표시
                     Text(
                         text = " ${report.meta}",
