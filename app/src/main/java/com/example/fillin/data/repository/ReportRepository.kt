@@ -78,7 +78,8 @@ class ReportRepository(private val context: Context) {
             title = title,
             latitude = latitude,
             longitude = longitude,
-            category = reportCategory
+            category = reportCategory,
+            address = location
         )
         val requestBody = gson.toJson(request).toRequestBody("application/json".toMediaTypeOrNull())
         val imagePart = uriToPart(imageUri)

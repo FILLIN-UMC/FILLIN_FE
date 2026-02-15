@@ -10,7 +10,8 @@ data class ReportCreateRequest(
     @SerializedName("title") val title: String,
     @SerializedName("latitude") val latitude: Double,
     @SerializedName("longitude") val longitude: Double,
-    @SerializedName("category") val category: ReportCategory
+    @SerializedName("category") val category: ReportCategory,
+    @SerializedName("address") val address: String = ""
 )
 
 enum class ReportCategory {
