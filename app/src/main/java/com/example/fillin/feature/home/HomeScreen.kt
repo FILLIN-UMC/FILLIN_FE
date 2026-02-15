@@ -700,7 +700,7 @@ fun HomeScreen(
                             report = Report(
                                 id = reportId,
                                 documentId = reportId.toString(),
-                                title = item.address ?: "",
+                                title = item.address ?: if (isNewUpload) (uploaded?.location ?: "") else "",
                                 meta = item.title ?: "",
                                 type = itemType,
                                 viewCount = item.viewCount,
@@ -1742,9 +1742,12 @@ fun HomeScreen(
                 val detail = reportDetail
                 val reportId = currentReportWithLocation.report.id
                 if (detail != null && (detail.reportId ?: 0L) == reportId) {
+                    // 주소: API 없으면 로컬 우선. currentReport가 비었을 수 있음(merge 타이밍) → reportWithLocation(클릭 시점)도 시도
+                    val fallbackAddr = currentReportWithLocation.report.title.ifBlank { reportWithLocation.report.title }
                     convertDetailToReportCardUi(
                         detail = detail,
                         currentUserLocation = currentUserLocation,
+                        fallbackAddress = fallbackAddr,
                         isLiked = userLikeStates[reportId] ?: currentReportWithLocation.report.isSaved
                     )
                 } else {
@@ -1911,10 +1914,13 @@ private fun convertToReportCardUi(
     )
 }
 
-/** 제보 상세 API 응답을 ReportCardUi로 변환 */
+/** 제보 상세 API 응답을 ReportCardUi로 변환
+ * @param fallbackAddress API에 주소가 없을 때 사용할 주소 (새 제보 등 - report.title에 저장된 location)
+ */
 private fun convertDetailToReportCardUi(
     detail: ReportImageDetailData,
     currentUserLocation: android.location.Location?,
+    fallbackAddress: String = "",
     isLiked: Boolean
 ): ReportCardUi {
     fun calculateDistanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
@@ -1967,7 +1973,12 @@ private fun convertDetailToReportCardUi(
         "오늘"
     }
 
-    val addressDisplay = formatRoadAddressOnly(detail.address ?: "")
+    // API의 address가 없으면 로컬 주소(fallbackAddress) 우선 사용 (새 제보 등)
+    val addressDisplay = when {
+        !detail.address.isNullOrBlank() -> formatRoadAddressOnly(detail.address!!).ifBlank { detail.address!! }
+        !fallbackAddress.isBlank() -> formatRoadAddressOnly(fallbackAddress).ifBlank { fallbackAddress }
+        else -> ""
+    }
 
     val distance = if (currentUserLocation != null) {
         val distanceMeters = calculateDistanceMeters(
@@ -1990,7 +2001,7 @@ private fun convertDetailToReportCardUi(
         profileImageUrl = detail.profileImageUrl,
         title = detail.title ?: "",
         createdLabel = createdLabel,
-        address = addressDisplay.ifBlank { detail.address ?: "" },
+        address = addressDisplay.ifBlank { fallbackAddress }.ifBlank { detail.address ?: "" },
         distance = distance,
         okCount = detail.doneCount,
         dangerCount = detail.nowCount,

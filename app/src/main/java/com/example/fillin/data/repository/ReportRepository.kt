@@ -38,6 +38,7 @@ class ReportRepository(private val context: Context) {
         title: String,
         location: String,
         imageUri: Uri,
+        finalImageUrl: String? = null, // 👈 추가된 파라미터
         latitude: Double = 0.0,
         longitude: Double = 0.0
     ): UploadedReportResult? {
@@ -50,7 +51,7 @@ class ReportRepository(private val context: Context) {
         }
 
         Log.d("ReportRepository", "API로 제보 등록 시도 중...")
-        val apiResult = uploadReportViaApi(category, title, location, imageUri, latitude, longitude)
+        val apiResult = uploadReportViaApi(category, title, location, imageUri, finalImageUrl, latitude, longitude)
         return if (apiResult != null) {
             Log.d("ReportRepository", "API 제보 등록 성공: reportId=${apiResult.documentId}")
             apiResult
@@ -65,6 +66,7 @@ class ReportRepository(private val context: Context) {
         title: String,
         location: String,
         imageUri: Uri,
+        finalImageUrl: String?, // 👈 추가
         latitude: Double,
         longitude: Double
     ): UploadedReportResult? = runCatching {
@@ -78,7 +80,10 @@ class ReportRepository(private val context: Context) {
             title = title,
             latitude = latitude,
             longitude = longitude,
-            category = reportCategory
+            category = reportCategory,
+            address = location,
+            reportImageUrl = finalImageUrl // 👈 S3에 저장된 모자이크 URL 전달
+
         )
         val requestBody = gson.toJson(request).toRequestBody("application/json".toMediaTypeOrNull())
         val imagePart = uriToPart(imageUri)
