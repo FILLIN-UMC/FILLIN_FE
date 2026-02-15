@@ -35,6 +35,7 @@ object SharedReportData {
         @SerializedName("status") val status: String = "ACTIVE",
         @SerializedName("imageUrl") val imageUrl: String? = null,
         @SerializedName("isUserOwned") val isUserOwned: Boolean = false,
+        @SerializedName("writerId") val writerId: Long? = null,
         @SerializedName("latitude") val latitude: Double = 0.0,
         @SerializedName("longitude") val longitude: Double = 0.0
     )
@@ -105,6 +106,7 @@ object SharedReportData {
                 },
                 imageUrl = rwl.report.imageUrl,
                 isUserOwned = rwl.report.isUserOwned,
+                writerId = rwl.report.writerId,
                 latitude = rwl.latitude,
                 longitude = rwl.longitude
             )
@@ -123,6 +125,7 @@ object SharedReportData {
     fun loadPersisted(context: Context): List<ReportWithLocation> {
         val json = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(KEY_PERSISTED_REPORTS, null) ?: return emptyList()
+        val currentUserMemberId = AppPreferences(context).getCurrentUserMemberId()
         return try {
             val type = object : TypeToken<List<PersistedReportDto>>() {}.type
             @Suppress("UNCHECKED_CAST")
@@ -138,6 +141,7 @@ object SharedReportData {
                     "EXPIRED" -> ReportStatus.EXPIRED
                     else -> ReportStatus.ACTIVE
                 }
+                val isUserOwned = if (dto.writerId != null && currentUserMemberId != null) dto.writerId == currentUserMemberId else dto.isUserOwned
                 val report = Report(
                     id = dto.id,
                     documentId = dto.documentId,
@@ -148,8 +152,9 @@ object SharedReportData {
                     status = reportStatus,
                     imageUrl = dto.imageUrl,
                     imageUri = null,
-                    isUserOwned = dto.isUserOwned,
-                    reporterInfo = if (dto.isUserOwned) getCurrentUser() else null
+                    isUserOwned = isUserOwned,
+                    writerId = dto.writerId,
+                    reporterInfo = if (isUserOwned) getCurrentUser() else null
                 )
                 ReportWithLocation(report = report, latitude = dto.latitude, longitude = dto.longitude)
             }

@@ -84,6 +84,9 @@ class MyPageViewModel(
             profile.profileImageUrl?.let { url ->
                 appPreferences.setProfileImageUri(url)
             }
+            profile.memberId?.let { id ->
+                appPreferences.setCurrentUserMemberId(id)
+            }
         }
 
         val totalReports = count?.totalReportCount ?: 0

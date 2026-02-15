@@ -72,6 +72,7 @@ import com.example.fillin.data.db.UploadedReportResult
 import com.example.fillin.data.api.TokenManager
 import com.example.fillin.data.model.mypage.MyReportItem
 import com.example.fillin.data.model.report.ReportImageDetailData
+import com.example.fillin.data.repository.MemberRepository
 import com.example.fillin.data.repository.MypageRepository
 import com.example.fillin.data.repository.ReportRepository
 import com.example.fillin.domain.model.Report
@@ -138,9 +139,11 @@ fun HomeScreen(
     SetStatusBarColor(color = Color.White, darkIcons = true)
     val context = LocalContext.current
     
-    // 앱 설정에서 현재 사용자 닉네임 가져오기
+    // 앱 설정에서 현재 사용자 닉네임·프로필 이미지 가져오기
     val appPreferences = remember { AppPreferences(context) }
     val currentUserNickname by appPreferences.nicknameFlow.collectAsState()
+    val currentUserProfileImageUri by appPreferences.profileImageUriFlow.collectAsState()
+    val currentUserMemberId by appPreferences.currentUserMemberIdFlow.collectAsState()
     
     val presentLocation = remember { PresentLocation(context) }
     var naverMap: NaverMap? by remember { mutableStateOf(null) }
@@ -210,7 +213,10 @@ fun HomeScreen(
     val geminiViewModel: GeminiViewModel = viewModel(factory = GeminiViewModelFactory(geminiRepository))
     val mypageRepository = remember(context) { MypageRepository(context) }
     val reportRepository = remember(context) { ReportRepository(context) }
+    val memberRepository = remember(context) { MemberRepository(context) }
     val reportViewModel: ReportViewModel = viewModel(factory = ReportViewModelFactory(reportRepository))
+    // writerId로 조회한 작성자 닉네임 캐시 (타인 제보 카드에서 상세 API에 nickname 없을 때 사용)
+    var writerNicknamesByWriterId by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
     val scope = rememberCoroutineScope()
     
     // === [권한 Launcher] ===
@@ -489,6 +495,7 @@ fun HomeScreen(
         val userDeletedIds = SharedReportData.loadUserDeletedFromRegisteredIds(context)
 
         val isLoggedIn = TokenManager.getBearerToken(context) != null
+        val currentUserMemberId = appPreferences.getCurrentUserMemberId()
         var reports = if (isLoggedIn) {
             // 로그인: 내 제보 + 인기 제보 (다른 사람 제보에 좋아요 가능하도록)
             val myResult = mypageRepository.getMyReports()
@@ -497,6 +504,8 @@ fun HomeScreen(
                 val reportId = item.reportId ?: return@mapNotNull null
                 val lat = item.latitude ?: defaultLat
                 val lon = item.longitude ?: defaultLon
+                val writerId = item.memberId
+                val isUserOwned = writerId != null && currentUserMemberId != null && writerId == currentUserMemberId
                 // API에 주소가 없으면 기존 목록의 주소 유지 (마이페이지 다녀온 후 새 제보 주소 사라짐 방지)
                 val existing = updatedSampleReports.find { it.report.id == reportId }
                 val addressStr = item.address?.takeIf { it.isNotBlank() } ?: existing?.report?.title ?: ""
@@ -516,8 +525,9 @@ fun HomeScreen(
                         viewCount = item.viewCount,
                         status = ReportStatus.ACTIVE,
                         imageUrl = item.reportImageUrl,
-                        isUserOwned = true,
-                        reporterInfo = SampleReportData.currentUser
+                        isUserOwned = isUserOwned,
+                        writerId = writerId,
+                        reporterInfo = if (isUserOwned) SampleReportData.currentUser else null
                     ),
                     latitude = lat,
                     longitude = lon
@@ -548,6 +558,7 @@ fun HomeScreen(
                         status = ReportStatus.ACTIVE,
                         imageUrl = null,
                         isUserOwned = false,
+                        writerId = null,
                         reporterInfo = null
                     ),
                     latitude = lat,
@@ -582,6 +593,7 @@ fun HomeScreen(
                         status = ReportStatus.ACTIVE,
                         imageUrl = null,
                         isUserOwned = false,
+                        writerId = null,
                         reporterInfo = null
                     ),
                     latitude = lat,
@@ -619,6 +631,7 @@ fun HomeScreen(
                         imageUrl = null,
                         imageUri = null,
                         isUserOwned = true,
+                        writerId = currentUserMemberId,
                         reporterInfo = SampleReportData.currentUser
                     )
                     merged = merged + ReportWithLocation(report = report, latitude = snapshot.latitude, longitude = snapshot.longitude)
@@ -644,6 +657,7 @@ fun HomeScreen(
                 // 지난 상황 제보: 선택한 좌표 사용 / 실시간 제보: 현재 위치 사용
                 val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
                 val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
+                val currentMemberId = appPreferences.getCurrentUserMemberId()
                 val newReport = Report(
                     id = newId,
                     documentId = uploaded.documentId,
@@ -655,6 +669,7 @@ fun HomeScreen(
                     imageUrl = uploaded.imageUrl,
                     imageUri = uploaded.imageUri,
                     isUserOwned = true,
+                    writerId = currentMemberId,
                     reporterInfo = SampleReportData.currentUser
                 )
                 val newWithLocation = ReportWithLocation(
@@ -675,10 +690,10 @@ fun HomeScreen(
             // API에서 최신 목록 재조회 후 병합 (서버에 반영된 새 제보 포함, 마커 표시 보장)
             if (TokenManager.getBearerToken(context) != null) {
                 val userDeletedIds = SharedReportData.loadUserDeletedFromRegisteredIds(context)
+                val currentMemberId = appPreferences.getCurrentUserMemberId()
                 mypageRepository.getMyReports().getOrNull()?.data?.let { items ->
                     val defaultLat = 37.5665
                     val defaultLon = 126.9780
-                    // 방금 업로드한 제보(newId)는 API에 좌표가 아직 null일 수 있음 → 업로드 시 사용한 좌표 유지
                     val uploadLat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: defaultLat
                     val uploadLon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: defaultLon
                     val apiReports = items.mapNotNull { item ->
@@ -686,6 +701,8 @@ fun HomeScreen(
                         val isNewUpload = (uploaded != null && reportId == (uploaded.documentId.toLongOrNull() ?: uploaded.documentId.hashCode().toLong().and(0x7FFFFFFFL).coerceAtLeast(10000L)))
                         val itemLat = item.latitude ?: if (isNewUpload) uploadLat else defaultLat
                         val itemLon = item.longitude ?: if (isNewUpload) uploadLon else defaultLon
+                        val writerId = item.memberId
+                        val isUserOwned = writerId != null && currentMemberId != null && writerId == currentMemberId
                         val existing = updatedSampleReports.find { it.report.id == reportId }
                         val addressStr = item.address?.takeIf { it.isNotBlank() }
                             ?: if (isNewUpload) (uploaded?.location ?: "") else (existing?.report?.title ?: "")
@@ -705,8 +722,9 @@ fun HomeScreen(
                                 viewCount = item.viewCount,
                                 status = ReportStatus.ACTIVE,
                                 imageUrl = item.reportImageUrl,
-                                isUserOwned = true,
-                                reporterInfo = SampleReportData.currentUser
+                                isUserOwned = isUserOwned,
+                                writerId = writerId,
+                                reporterInfo = if (isUserOwned) SampleReportData.currentUser else null
                             ),
                             latitude = itemLat,
                             longitude = itemLon
@@ -806,6 +824,15 @@ fun HomeScreen(
                 else -> detailLoadError = "상세 정보를 불러오지 못했습니다"
             }
         }
+    }
+
+    // 타인 제보: 상세에 nickname 없을 때 writerId로 회원 API 조회 후 캐시 (해당 제보 등록자 닉네임 표시용)
+    LaunchedEffect(reportDetail) {
+        val detail = reportDetail ?: return@LaunchedEffect
+        val writerId = detail.writerId ?: return@LaunchedEffect
+        if (!detail.nickname.isNullOrBlank()) return@LaunchedEffect
+        val nickname = memberRepository.getMemberNickname(writerId) ?: return@LaunchedEffect
+        writerNicknamesByWriterId = writerNicknamesByWriterId + (writerId to nickname)
     }
     
     // 에러/비로그인 안내 Toast 표시
@@ -1740,21 +1767,34 @@ fun HomeScreen(
             }
             // 제보 상세 API 응답이 있으면 우선 사용 (viewCount, doneCount, nowCount, validType 등 최신 반영)
             val reportCardUi = remember(
-                reportDetail, currentReportWithLocation, currentUserLocation, currentUserNickname, userLikeStates
+                reportDetail, currentReportWithLocation, currentUserLocation, currentUserNickname, currentUserProfileImageUri, currentUserMemberId, userLikeStates, writerNicknamesByWriterId
             ) {
                 val detail = reportDetail
                 val reportId = currentReportWithLocation.report.id
+                // 상세 API가 있으면 writerId로 본인 제보 여부 판단, 없으면 목록의 isUserOwned 사용
+                val isOwnReport = if (detail != null && (detail.reportId ?: 0L) == reportId)
+                    detail.writerId != null && currentUserMemberId != null && detail.writerId == currentUserMemberId
+                else
+                    currentReportWithLocation.report.isUserOwned
                 if (detail != null && (detail.reportId ?: 0L) == reportId) {
-                    // 주소: API 없으면 로컬 우선. currentReport가 비었을 수 있음(merge 타이밍) → reportWithLocation(클릭 시점)도 시도
+                    // 주소: API 없으면 로컬 우선
                     val fallbackAddr = currentReportWithLocation.report.title.ifBlank { reportWithLocation.report.title }
+                    // 닉네임: 항상 해당 제보 등록자(작성자) 표시. 본인 제보만 앱 저장 닉네임 fallback, 타인은 API 또는 writerId 조회 결과
+                    val fallbackNickname = if (isOwnReport) currentUserNickname
+                        else (detail.writerId?.let { writerNicknamesByWriterId[it] } ?: currentReportWithLocation.report.reporterInfo?.nickname)
+                    // 프로필 이미지: 본인 제보일 때만 앱에 저장된 프로필 fallback (타인 제보는 항상 API의 profileImageUrl만 사용)
+                    val fallbackProfileUri = if (isOwnReport && !currentUserProfileImageUri.isNullOrBlank())
+                        Uri.parse(currentUserProfileImageUri) else null
                     convertDetailToReportCardUi(
                         detail = detail,
                         currentUserLocation = currentUserLocation,
                         fallbackAddress = fallbackAddr,
+                        fallbackNickname = fallbackNickname,
+                        fallbackProfileImageUri = fallbackProfileUri,
                         isLiked = userLikeStates[reportId] ?: currentReportWithLocation.report.isSaved
                     )
                 } else {
-                    convertToReportCardUi(currentReportWithLocation, currentUserLocation, currentUserNickname)
+                    convertToReportCardUi(currentReportWithLocation, currentUserLocation, currentUserNickname, currentUserProfileImageUri, currentUserMemberId)
                 }
             }
             // 배경 오버레이 (전체 화면을 덮어 네비게이션 바까지 어둡게 처리)
@@ -1783,7 +1823,7 @@ fun HomeScreen(
                                 .clickable(enabled = false) { }, // 카드 내부 클릭 방지
                         selectedFeedback = userFeedbackSelections[reportCardUi.reportId],
                         isLiked = userLikeStates[reportCardUi.reportId] ?: reportCardUi.isLiked,
-                        showLikeButton = !currentReportWithLocation.report.isUserOwned, // 본인 제보는 저장 불가
+                        showLikeButton = !(reportDetail?.let { it.reportId == currentReportWithLocation.report.id && it.writerId != null && currentUserMemberId != null && it.writerId == currentUserMemberId } ?: currentReportWithLocation.report.isUserOwned),
                         onPositiveFeedback = {
                             updateFeedback(reportCardUi.reportId, true)
                             // selectedReport 업데이트
@@ -1838,11 +1878,16 @@ fun HomeScreen(
     }
 }
 
-// ReportWithLocation을 ReportCardUi로 변환하는 헬퍼 함수
+/** ReportWithLocation을 ReportCardUi로 변환.
+ * 표시하는 닉네임/프로필/뱃지는 항상 해당 제보 등록자(작성자) 정보.
+ * 본인 제보 여부: writerId == currentUserMemberId 로 판단 (둘 다 있을 때), 없으면 report.isUserOwned 사용.
+ */
 private fun convertToReportCardUi(
     reportWithLocation: ReportWithLocation,
     currentUserLocation: android.location.Location?,
-    currentUserNickname: String = "사용자"
+    currentUserNickname: String = "사용자",
+    currentUserProfileImageUri: String? = null,
+    currentUserMemberId: Long? = null
 ): ReportCardUi {
     // 두 좌표 간 거리 계산 (미터 단위)
     fun calculateDistanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
@@ -1857,7 +1902,11 @@ private fun convertToReportCardUi(
     }
     
     val report = reportWithLocation.report
-    
+    val isUserOwned = if (report.writerId != null && currentUserMemberId != null)
+        report.writerId == currentUserMemberId
+    else
+        report.isUserOwned
+
     // 타입에 따른 라벨과 색상
     val (typeLabel, typeColor) = when (report.type) {
         ReportType.DANGER -> "위험" to Color(0xFFFF6060)
@@ -1903,9 +1952,11 @@ private fun convertToReportCardUi(
         views = report.viewCount,
         typeLabel = typeLabel,
         typeColor = typeColor,
-        userName = if (report.isUserOwned) currentUserNickname else (report.reporterInfo?.nickname ?: "사용자"),
-        userBadge = if (report.isUserOwned) SharedReportData.getBadgeName() else "루키", // 본인 제보면 현재 뱃지, 아니면 기본 뱃지
+        userName = if (isUserOwned) currentUserNickname else (report.reporterInfo?.nickname ?: "사용자"),
+        userBadge = if (isUserOwned) SharedReportData.getBadgeName() else "루키",
         profileImageUrl = report.reporterInfo?.profileImageUrl,
+        profileImageUri = if (isUserOwned && report.reporterInfo?.profileImageUrl.isNullOrBlank() && !currentUserProfileImageUri.isNullOrBlank())
+            Uri.parse(currentUserProfileImageUri) else null,
         title = title,
         createdLabel = createdLabel,
         address = addressDisplay,
@@ -1916,13 +1967,19 @@ private fun convertToReportCardUi(
     )
 }
 
-/** 제보 상세 API 응답을 ReportCardUi로 변환
- * @param fallbackAddress API에 주소가 없을 때 사용할 주소 (새 제보 등 - report.title에 저장된 location)
+/** 제보 상세 API 응답을 ReportCardUi로 변환.
+ * 표시하는 닉네임/프로필/뱃지는 항상 해당 제보 등록자(작성자) 정보.
+ * 본인 제보일 때만 fallbackNickname/fallbackProfileImageUri로 현재 사용자 앱 저장값 사용.
+ * @param fallbackAddress API에 주소가 없을 때 사용할 주소
+ * @param fallbackNickname 작성자 닉네임 fallback (본인=앱 저장 닉네임, 타인=writerId 조회 등)
+ * @param fallbackProfileImageUri 작성자 프로필 이미지 fallback (본인 제보일 때만 앱 저장 이미지)
  */
 private fun convertDetailToReportCardUi(
     detail: ReportImageDetailData,
     currentUserLocation: android.location.Location?,
     fallbackAddress: String = "",
+    fallbackNickname: String? = null,
+    fallbackProfileImageUri: Uri? = null,
     isLiked: Boolean
 ): ReportCardUi {
     fun calculateDistanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
@@ -1998,9 +2055,10 @@ private fun convertDetailToReportCardUi(
         views = detail.viewCount,
         typeLabel = typeLabel,
         typeColor = typeColor,
-        userName = "사용자",
+        userName = detail.nickname?.takeIf { it.isNotBlank() } ?: fallbackNickname?.takeIf { it.isNotBlank() } ?: "사용자",
         userBadge = userBadge,
         profileImageUrl = detail.profileImageUrl,
+        profileImageUri = fallbackProfileImageUri, // 본인 제보일 때만 전달됨 → 해당 제보 등록자(현재 사용자) 프로필 표시
         title = detail.title ?: "",
         createdLabel = createdLabel,
         address = addressDisplay.ifBlank { fallbackAddress }.ifBlank { detail.address ?: "" },

@@ -49,8 +49,11 @@ data class Report(
     // EXPIRING 상태로 변경된 시점 (3일 후 EXPIRED로 변경)
     val expiringAtMillis: Long? = null,
     
-    // 현재 사용자가 등록한 제보인지 여부
+    // 현재 사용자가 등록한 제보인지 여부 (writerId == 현재 사용자 memberId 로 판단 권장)
     val isUserOwned: Boolean = false,
+
+    /** 제보 등록자 memberId (API writerId). 현재 사용자 memberId와 비교해 본인 제보 여부 판단 */
+    val writerId: Long? = null,
     
     // 제보 등록자 정보
     val reporterInfo: ReporterInfo? = null
