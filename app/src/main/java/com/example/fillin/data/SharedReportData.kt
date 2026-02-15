@@ -4,9 +4,13 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.example.fillin.feature.home.ReportWithLocation
 import com.example.fillin.domain.model.Report
-import com.example.fillin.domain.model.ReporterInfo
 import com.example.fillin.domain.model.ReportStatus
+import com.example.fillin.domain.model.ReportType
+import com.example.fillin.domain.model.ReporterInfo
 import com.example.fillin.data.ReportStatusManager
+import com.google.gson.Gson
+import com.google.gson.annotations.SerializedName
+import com.google.gson.reflect.TypeToken
 
 /**
  * 앱 전체에서 공유되는 제보 데이터를 관리하는 싱글톤 객체
@@ -14,6 +18,26 @@ import com.example.fillin.data.ReportStatusManager
 object SharedReportData {
     private var reports: List<ReportWithLocation> = emptyList()
     private const val PREFS_NAME = "fillin_report_feedback"
+
+    /** 앱 재실행 시 복원용: 제보 목록 JSON 저장 키 (지도·마이페이지 총 제보 수 유지) */
+    private const val KEY_PERSISTED_REPORTS = "persisted_reports_list"
+
+    private val gson = Gson()
+
+    /** persist/load용 DTO (Uri 등 직렬화 불가 필드 제외) */
+    private data class PersistedReportDto(
+        @SerializedName("id") val id: Long,
+        @SerializedName("documentId") val documentId: String? = null,
+        @SerializedName("title") val title: String = "",
+        @SerializedName("meta") val meta: String = "",
+        @SerializedName("type") val type: String = "DISCOVERY",
+        @SerializedName("viewCount") val viewCount: Int = 0,
+        @SerializedName("status") val status: String = "ACTIVE",
+        @SerializedName("imageUrl") val imageUrl: String? = null,
+        @SerializedName("isUserOwned") val isUserOwned: Boolean = false,
+        @SerializedName("latitude") val latitude: Double = 0.0,
+        @SerializedName("longitude") val longitude: Double = 0.0
+    )
     
     private const val KEY_SAMPLE_DATA_MIGRATED = "sample_data_migrated"
     private const val KEY_SAMPLE_REPORT_DOCUMENT_IDS = "sample_report_firestore_document_ids"
@@ -55,6 +79,84 @@ object SharedReportData {
      */
     fun getReports(): List<ReportWithLocation> {
         return reports
+    }
+
+    /**
+     * 제보 목록을 SharedPreferences에 저장합니다.
+     * 앱 종료 후 재실행 시 지도·마이페이지에서 복원할 수 있도록 합니다.
+     */
+    fun persist(context: Context, reports: List<ReportWithLocation>) {
+        val dtos = reports.map { rwl ->
+            PersistedReportDto(
+                id = rwl.report.id,
+                documentId = rwl.report.documentId,
+                title = rwl.report.title,
+                meta = rwl.report.meta,
+                type = when (rwl.report.type) {
+                    ReportType.DANGER -> "DANGER"
+                    ReportType.INCONVENIENCE -> "INCONVENIENCE"
+                    ReportType.DISCOVERY -> "DISCOVERY"
+                },
+                viewCount = rwl.report.viewCount,
+                status = when (rwl.report.status) {
+                    ReportStatus.ACTIVE -> "ACTIVE"
+                    ReportStatus.EXPIRING -> "EXPIRING"
+                    ReportStatus.EXPIRED -> "EXPIRED"
+                },
+                imageUrl = rwl.report.imageUrl,
+                isUserOwned = rwl.report.isUserOwned,
+                latitude = rwl.latitude,
+                longitude = rwl.longitude
+            )
+        }
+        val json = gson.toJson(dtos)
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_PERSISTED_REPORTS, json)
+            .apply()
+    }
+
+    /**
+     * SharedPreferences에 저장된 제보 목록을 복원합니다.
+     * 앱 재실행 시 호출하여 지도·마이페이지 초기 데이터로 사용합니다.
+     */
+    fun loadPersisted(context: Context): List<ReportWithLocation> {
+        val json = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_PERSISTED_REPORTS, null) ?: return emptyList()
+        return try {
+            val type = object : TypeToken<List<PersistedReportDto>>() {}.type
+            @Suppress("UNCHECKED_CAST")
+            val dtos = gson.fromJson<List<PersistedReportDto>>(json, type) ?: return emptyList()
+            dtos.map { dto ->
+                val reportType = when (dto.type) {
+                    "DANGER" -> ReportType.DANGER
+                    "INCONVENIENCE" -> ReportType.INCONVENIENCE
+                    else -> ReportType.DISCOVERY
+                }
+                val reportStatus = when (dto.status) {
+                    "EXPIRING" -> ReportStatus.EXPIRING
+                    "EXPIRED" -> ReportStatus.EXPIRED
+                    else -> ReportStatus.ACTIVE
+                }
+                val report = Report(
+                    id = dto.id,
+                    documentId = dto.documentId,
+                    title = dto.title,
+                    meta = dto.meta,
+                    type = reportType,
+                    viewCount = dto.viewCount,
+                    status = reportStatus,
+                    imageUrl = dto.imageUrl,
+                    imageUri = null,
+                    isUserOwned = dto.isUserOwned,
+                    reporterInfo = if (dto.isUserOwned) getCurrentUser() else null
+                )
+                ReportWithLocation(report = report, latitude = dto.latitude, longitude = dto.longitude)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
     }
     
     /**

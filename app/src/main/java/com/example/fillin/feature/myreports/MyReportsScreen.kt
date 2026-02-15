@@ -249,7 +249,8 @@ fun MyReportsScreen(navController: NavController) {
                 TabText(
                     text = "등록된 제보",
                     selected = tab == MyReportsTab.REGISTERED,
-                    onClick = { tab = MyReportsTab.REGISTERED }
+                    enabled = !editMode,
+                    onClick = { if (!editMode) tab = MyReportsTab.REGISTERED }
                 )
             }
             Box(
@@ -259,7 +260,8 @@ fun MyReportsScreen(navController: NavController) {
                 TabText(
                     text = "사라진 제보",
                     selected = tab == MyReportsTab.EXPIRED,
-                    onClick = { tab = MyReportsTab.EXPIRED }
+                    enabled = !editMode,
+                    onClick = { if (!editMode) tab = MyReportsTab.EXPIRED }
                 )
             }
         }
@@ -395,13 +397,17 @@ fun MyReportsScreen(navController: NavController) {
 }
 
 @Composable
-private fun TabText(text: String, selected: Boolean, onClick: () -> Unit) {
+private fun TabText(text: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     Text(
         text = text,
         fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
-        color = if (selected) Color(0xFF4595E5) else Color(0xFFAAADB3),
+        color = when {
+            !enabled -> Color(0xFFD1D5DB)
+            selected -> Color(0xFF4595E5)
+            else -> Color(0xFFAAADB3)
+        },
         fontSize = 18.sp,
-        modifier = Modifier.clickable { onClick() }
+        modifier = Modifier.clickable(enabled = enabled) { onClick() }
     )
 }
 

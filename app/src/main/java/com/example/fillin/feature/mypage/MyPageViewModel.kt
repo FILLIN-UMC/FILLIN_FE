@@ -87,9 +87,13 @@ class MyPageViewModel(
         val dangerMission = missions.find { it.category == "DANGER" }
         val inconvenMission = missions.find { it.category == "INCONVENIENCE" }
         val discoveryMission = missions.find { it.category == "DISCOVERY" }
-        val danger = (dangerMission?.currentCount ?: category?.dangerCount ?: 0) to (dangerMission?.targetCount ?: 5)
-        val inconvenience = (inconvenMission?.currentCount ?: category?.inconvenienceCount ?: 0) to (inconvenMission?.targetCount ?: 5)
-        val discovery = (discoveryMission?.currentCount ?: category?.discoveryCount ?: 0) to (discoveryMission?.targetCount ?: 5)
+        // 내가 한 제보: 카테고리별 제보 개수는 getReportCategory() API 우선, 실패 시 getMyReports() 결과로 계산
+        val dangerCount = category?.dangerCount ?: reports.count { it.reportCategory == "DANGER" }
+        val inconvenienceCount = category?.inconvenienceCount ?: reports.count { it.reportCategory == "INCONVENIENCE" }
+        val discoveryCount = category?.discoveryCount ?: reports.count { it.reportCategory == "DISCOVERY" }
+        val danger = dangerCount to (dangerMission?.targetCount ?: 5)
+        val inconvenience = inconvenienceCount to (inconvenMission?.targetCount ?: 5)
+        val discovery = discoveryCount to (discoveryMission?.targetCount ?: 5)
 
         val summary = MyPageSummary(
             nickname = profile?.nickname ?: appPreferences.getNickname(),

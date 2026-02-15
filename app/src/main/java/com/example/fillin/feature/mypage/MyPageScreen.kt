@@ -660,7 +660,6 @@ private fun MyPageSuccess(
                         iconRes = R.drawable.ic_warning,
                         emoji = null,
                         count = dangerCount,
-                        targetCount = dangerGoal,
                         leftColor = Color(0xFFFF6060)
                     )
                     MissionCardSmall(
@@ -669,13 +668,11 @@ private fun MyPageSuccess(
                         iconRes = R.drawable.ic_inconvenience,
                         emoji = null,
                         count = inconvenienceCount,
-                        targetCount = inconvenienceGoal,
                         leftColor = Color(0xFF252526)
                     )
                     DiscoveryMissionCard(
                         modifier = Modifier.weight(1f),
-                        count = discoveryCount,
-                        targetCount = discoveryGoal
+                        count = discoveryCount
                     )
                 }
 
@@ -756,8 +753,7 @@ private fun TagChip(
 @Composable
 private fun DiscoveryMissionCard(
     modifier: Modifier = Modifier,
-    count: Int,
-    targetCount: Int = 0
+    count: Int
 ) {
     val shape = RoundedCornerShape(14.dp)
     Surface(
@@ -776,9 +772,8 @@ private fun DiscoveryMissionCard(
             Text("👀", fontSize = 22.sp)
             Spacer(Modifier.weight(1f))
 
-            val countText = if (targetCount > 0) "$count/$targetCount" else count.toString()
             Text(
-                text = countText,
+                text = count.toString(),
                 fontWeight = FontWeight.ExtraBold,
                 color = Color(0xFF555659),
                 fontSize = 16.sp
@@ -995,7 +990,6 @@ private fun MissionCardSmall(
     iconRes: Int? = null,
     emoji: String? = null,
     count: Int,
-    targetCount: Int = 0,
     leftColor: Color
 ) {
     val shape = RoundedCornerShape(14.dp)
@@ -1025,8 +1019,7 @@ private fun MissionCardSmall(
             }
             Spacer(Modifier.height(14.dp))
             Row {
-                val countText = if (targetCount > 0) "$count/$targetCount" else "$count"
-                Text(countText, fontWeight = FontWeight.ExtraBold, color = Color(0xFF555659))
+                Text("$count", fontWeight = FontWeight.ExtraBold, color = Color(0xFF555659))
             }
         }
     }

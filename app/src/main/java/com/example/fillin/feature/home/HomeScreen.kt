@@ -57,6 +57,7 @@ import com.example.fillin.feature.report.pastreport.PastReportPhotoSelectionScre
 import com.example.fillin.feature.report.realtime.RealtimeReportScreen
 import com.example.fillin.feature.report.ReportOptionMenu
 import com.example.fillin.feature.report.ReportRegistrationScreen
+import com.example.fillin.feature.report.LastUploadedSnapshot
 import com.example.fillin.feature.report.ReportViewModel
 import com.example.fillin.feature.report.ReportViewModelFactory
 import com.example.fillin.ui.components.AiLoadingOverlay
@@ -67,7 +68,6 @@ import com.example.fillin.data.AppPreferences
 import com.example.fillin.data.ReportStatusManager
 import com.example.fillin.data.SampleReportData
 import com.example.fillin.data.SharedReportData
-import com.example.fillin.data.db.ReportDocument
 import com.example.fillin.data.db.UploadedReportResult
 import com.example.fillin.data.api.TokenManager
 import com.example.fillin.data.model.mypage.MyReportItem
@@ -292,7 +292,6 @@ fun HomeScreen(
         mutableStateOf(SharedReportData.getReports().filter { it.report.id !in SharedReportData.loadUserPermanentlyDeletedIds(context) })
     }
     var reportListVersion by remember { mutableStateOf(0) } // 업로드 시 마커 갱신 강제
-    var lastUploadTimeMillis by remember { mutableStateOf(0L) } // 업로드 직후 API 덮어쓰기 방지
     var lastUploadedLatLon by remember { mutableStateOf<Pair<Double, Double>?>(null) } // 업로드 후 카메라 이동용
 
     // [수정] 본인의 저장소(savedStateHandle)에서 "report_flow"를 실시간 관찰하는 상태 생성
@@ -435,16 +434,16 @@ fun HomeScreen(
             "report_card_visible",
             selectedReport != null
         )
-        // 제보 카드가 표시될 때 네비게이션 바 숨기기
+    // 제보 카드가 표시될 때 네비게이션 바 숨기기
         if (selectedReport != null) {
             onHideBottomBar()
         } else {
             // 제보 카드가 닫힐 때, 다른 오버레이가 표시되지 않을 때만 네비게이션 바를 다시 보이게 함
             if (!showCamera && !isRealtimeReportScreenVisible && !isPastReportScreenVisible && 
                 !isMapPickingMode && !isPastReportPhotoStage && !isPastReportLocationMode) {
-                onShowBottomBar()
-            }
+            onShowBottomBar()
         }
+    }
     } */
     
 /*    // === [제보 등록 화면이 표시될 때 네비게이션 바 숨기기] ===
@@ -467,17 +466,31 @@ fun HomeScreen(
         }
     } */
     
-    // 제보 데이터를 공유 객체에 저장 (완전 삭제한 제보 제외)
+    // 앱 재실행 시: 저장된 제보 목록 복원 (지도·마이페이지 총 제보 수 유지)
+    LaunchedEffect(Unit) {
+        val loaded = SharedReportData.loadPersisted(context)
+        if (loaded.isNotEmpty()) {
+            SharedReportData.setReports(loaded)
+            val deletedIds = SharedReportData.loadUserPermanentlyDeletedIds(context)
+            updatedSampleReports = loaded.filter { it.report.id !in deletedIds }
+            reportListVersion++
+            Log.d("HomeScreen", "제보 목록 복원: ${loaded.size}건")
+        }
+    }
+
+    // 제보 데이터를 공유 객체에 저장 (완전 삭제한 제보 제외) + 디스크에 persist (앱 재실행 시 복원용)
     val permanentlyDeleted = remember(backStackEntry) { SharedReportData.loadUserPermanentlyDeletedIds(context) }
     LaunchedEffect(updatedSampleReports, permanentlyDeleted) {
-        SharedReportData.setReports(updatedSampleReports.filter { it.report.id !in permanentlyDeleted })
+        val list = updatedSampleReports.filter { it.report.id !in permanentlyDeleted }
+        SharedReportData.setReports(list)
+        SharedReportData.persist(context, list)
     }
 
     // === [백엔드 API에서만 제보 로드] ===
-    // uploadStatus가 true일 때, 또는 업로드 직후 5초 이내에는 덮어쓰지 않음 (새 제보 마커 보존)
-    LaunchedEffect(Unit, userDeletedFromRegistered, reportViewModel.uploadStatus) {
+    // uploadStatus가 true일 때, 또는 업로드 직후 5초 이내에는 덮어쓰지 않음 (새 제보 마커 보존, ViewModel에 두어 재진입 시에도 유지)
+    LaunchedEffect(Unit, userDeletedFromRegistered, reportViewModel.uploadStatus, reportViewModel.lastUploadTimeMillis) {
         if (reportViewModel.uploadStatus == true) return@LaunchedEffect
-        if (lastUploadTimeMillis > 0 && System.currentTimeMillis() - lastUploadTimeMillis < 5000L) return@LaunchedEffect
+        if (reportViewModel.lastUploadTimeMillis > 0 && System.currentTimeMillis() - reportViewModel.lastUploadTimeMillis < 5000L) return@LaunchedEffect
         val defaultLat = 37.5665
         val defaultLon = 126.9780
         val userDeletedIds = SharedReportData.loadUserDeletedFromRegisteredIds(context)
@@ -589,7 +602,35 @@ fun HomeScreen(
         // API 응답으로 덮어쓸 때, 업로드 LaunchedEffect에서 추가한 제보는 보존 (레이스 컨디션 방지)
         val apiIds = reportsWithExpired.map { it.report.id }.toSet()
         val locallyAdded = updatedSampleReports.filter { it.report.id !in apiIds }
-        updatedSampleReports = reportsWithExpired + locallyAdded
+        var merged = reportsWithExpired + locallyAdded
+        // 방금 올린 제보가 API 결과에 없을 수 있음(지연/캐시) → ViewModel 스냅샷으로 재추가
+        reportViewModel.lastUploadedReportId?.let { guardId ->
+            if (merged.none { it.report.id == guardId }) {
+                reportViewModel.lastUploadedReportSnapshot?.let { snapshot ->
+                    val reportType = when (snapshot.category) {
+                        "위험" -> ReportType.DANGER
+                        "불편" -> ReportType.INCONVENIENCE
+                        else -> ReportType.DISCOVERY
+                    }
+                    val report = Report(
+                        id = snapshot.id,
+                        documentId = snapshot.documentId,
+                        title = snapshot.location,
+                        meta = snapshot.title,
+                        type = reportType,
+                        viewCount = 0,
+                        status = ReportStatus.ACTIVE,
+                        imageUrl = null,
+                        imageUri = null,
+                        isUserOwned = true,
+                        reporterInfo = SampleReportData.currentUser
+                    )
+                    merged = merged + ReportWithLocation(report = report, latitude = snapshot.latitude, longitude = snapshot.longitude)
+                    Log.d("HomeScreen", "[제보 로드] 방금 올린 제보 보존: id=${snapshot.id}")
+                }
+            }
+        }
+        updatedSampleReports = merged
     }
 
     // === [업로드 결과 관찰 및 알림 처리 + 지도에 새 제보 추가] ===
@@ -627,7 +668,7 @@ fun HomeScreen(
                 )
                 updatedSampleReports = updatedSampleReports + newWithLocation
                 reportListVersion++
-                lastUploadTimeMillis = System.currentTimeMillis()
+                reportViewModel.setUploadGuard(newId, lat, lon, uploaded.category, uploaded.title, uploaded.location, uploaded.documentId)
                 lastUploadedLatLon = Pair(lat, lon)
                 Log.d("HomeScreen", "새 제보 추가됨: id=$newId, lat=$lat, lon=$lon, total=${updatedSampleReports.size}")
             }
@@ -641,10 +682,14 @@ fun HomeScreen(
                 mypageRepository.getMyReports().getOrNull()?.data?.let { items ->
                     val defaultLat = 37.5665
                     val defaultLon = 126.9780
+                    // 방금 업로드한 제보(newId)는 API에 좌표가 아직 null일 수 있음 → 업로드 시 사용한 좌표 유지
+                    val uploadLat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: defaultLat
+                    val uploadLon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: defaultLon
                     val apiReports = items.mapNotNull { item ->
                         val reportId = item.reportId ?: return@mapNotNull null
-                        val itemLat = item.latitude ?: defaultLat
-                        val itemLon = item.longitude ?: defaultLon
+                        val isNewUpload = (uploaded != null && reportId == (uploaded.documentId.toLongOrNull() ?: uploaded.documentId.hashCode().toLong().and(0x7FFFFFFFL).coerceAtLeast(10000L)))
+                        val itemLat = item.latitude ?: if (isNewUpload) uploadLat else defaultLat
+                        val itemLon = item.longitude ?: if (isNewUpload) uploadLon else defaultLon
                         val itemType = when (item.reportCategory) {
                             "DANGER" -> ReportType.DANGER
                             "INCONVENIENCE" -> ReportType.INCONVENIENCE
@@ -685,6 +730,7 @@ fun HomeScreen(
             reportViewModel.resetStatus()
             delay(300)
             lastUploadedLatLon = null // 카메라 이동 후 초기화
+            reportViewModel.scheduleClearUploadGuard(5000L) // 5초 후 가드 해제 (그동안 API 덮어쓰기 방지)
         } else if (reportViewModel.uploadStatus == false) {
             Toast.makeText(context, "등록에 실패했습니다. 다시 시도해주세요.", Toast.LENGTH_SHORT).show()
             reportViewModel.resetStatus()
@@ -867,9 +913,11 @@ fun HomeScreen(
                 reportWithLocation
             }
         }
-        // SharedReportData에도 반영 (완전 삭제한 제보 제외)
+        // SharedReportData에도 반영 (완전 삭제한 제보 제외) + 디스크에 persist
         val permanentlyDeletedIds = SharedReportData.loadUserPermanentlyDeletedIds(context)
-        SharedReportData.setReports(updatedSampleReports.filter { it.report.id !in permanentlyDeletedIds })
+        val listToStore = updatedSampleReports.filter { it.report.id !in permanentlyDeletedIds }
+        SharedReportData.setReports(listToStore)
+        SharedReportData.persist(context, listToStore)
     }
     
     // 현재 시간 기준 최근 3일 제보 필터링 및 정렬 (ACTIVE 상태만)
@@ -1233,8 +1281,8 @@ fun HomeScreen(
     }
     
     // 지도 마커 표시 (줌 레벨에 따라 개별 마커 또는 클러스터 마커)
-    // lastUploadTimeMillis, lastUploadedLatLon: 업로드 직후 naverMap이 아직 null일 수 있어, 지도 준비 후에도 마커 갱신 보장
-    LaunchedEffect(naverMap, updatedSampleReports, reportListVersion, lastUploadTimeMillis, lastUploadedLatLon, selectedCategories, cameraZoomLevel, userDeletedFromRegistered, permanentlyDeleted) {
+    // reportViewModel.lastUploadTimeMillis, lastUploadedLatLon: 업로드 직후 naverMap이 아직 null일 수 있어, 지도 준비 후에도 마커 갱신 보장
+    LaunchedEffect(naverMap, updatedSampleReports, reportListVersion, reportViewModel.lastUploadTimeMillis, lastUploadedLatLon, selectedCategories, cameraZoomLevel, userDeletedFromRegistered, permanentlyDeleted) {
         naverMap?.let { naverMapInstance ->
             // ACTIVE 상태인 제보만 필터링 (나의 제보에서 삭제한 제보, 완전 삭제한 제보는 지도에 표시 안 함)
             // 서버 DB 중복 제거: report.id 기준으로 첫 번째만 유지
@@ -1248,9 +1296,9 @@ fun HomeScreen(
             
             // 줌 레벨이 14 이하이면 클러스터링 (단, 카테고리 선택 시에는 개별 마커 표시하여 크기 변화 보임)
             if (cameraZoomLevel <= 14.0 && selectedCategories.isEmpty()) {
-                // 기존 마커 제거
-                markers.forEach { it.map = null }
-                markers.clear()
+            // 기존 마커 제거
+            markers.forEach { it.map = null }
+            markers.clear()
                 // 클러스터링 로직 (카테고리 구분 없이 거리만으로 묶기)
                 val clusters = mutableListOf<Cluster>()
                 val processed = BooleanArray(activeReports.size) { false }
@@ -1518,9 +1566,13 @@ fun HomeScreen(
                     onLocationFieldClick = { isMapPickingMode = true },
                     onDismiss = { geminiViewModel.clearResult() },
                     onRegister = { category, title, location, uri ->
-                        val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
-                        val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
-                        reportViewModel.uploadReport(category, title, uri, location, lat, lon)
+                        if (TokenManager.getBearerToken(context) != null) {
+                            val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
+                            val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
+                            reportViewModel.uploadReport(category, title, uri, location, lat, lon)
+                        } else {
+                            Toast.makeText(context, "로그인 후 제보를 등록할 수 있습니다.", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 )
                 if (isMapPickingMode) {
@@ -1643,10 +1695,13 @@ fun HomeScreen(
                     geminiViewModel.clearResult()
                 },
                 onRegister = { category, title, location, uri ->
-                    // 지난 상황 제보: 사용자가 선택한 위치 좌표 사용 (위치 설정 화면에서 선택한 곳)
-                    val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
-                    val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
-                    reportViewModel.uploadReport(category, title, uri, location, lat, lon)
+                    if (TokenManager.getBearerToken(context) != null) {
+                        val lat = finalLatitude ?: currentUserLocation?.latitude ?: naverMap?.cameraPosition?.target?.latitude ?: 37.5665
+                        val lon = finalLongitude ?: currentUserLocation?.longitude ?: naverMap?.cameraPosition?.target?.longitude ?: 126.9780
+                        reportViewModel.uploadReport(category, title, uri, location, lat, lon)
+                    } else {
+                        Toast.makeText(context, "로그인 후 제보를 등록할 수 있습니다.", Toast.LENGTH_SHORT).show()
+                    }
                 }
             )
         }
@@ -1655,7 +1710,7 @@ fun HomeScreen(
         if (geminiViewModel.isAnalyzing || reportViewModel.isUploading) {
             AiLoadingOverlay(isUploading = reportViewModel.isUploading)
         }
-        
+
         // 상단 알림 배너 (제보 카드가 표시되어도 그대로 표시, 단 제보 흐름 진행 중에는 숨김)
         val isReportFlowActive = showCamera || isRealtimeReportScreenVisible || isPastReportScreenVisible || 
             isPastReportPhotoStage || isPastReportLocationMode || isMapPickingMode
@@ -1717,8 +1772,8 @@ fun HomeScreen(
                     Box(modifier = Modifier.fillMaxWidth()) {
                         ReportCard(
                             report = reportCardUi,
-                            modifier = Modifier
-                                .fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
                                 .clickable(enabled = false) { }, // 카드 내부 클릭 방지
                         selectedFeedback = userFeedbackSelections[reportCardUi.reportId],
                         isLiked = userLikeStates[reportCardUi.reportId] ?: reportCardUi.isLiked,
@@ -1808,15 +1863,11 @@ private fun convertToReportCardUi(
     val daysAgo = (System.currentTimeMillis() - report.createdAtMillis) / (24 * 60 * 60 * 1000)
     val createdLabel = if (daysAgo == 0L) "오늘" else "${daysAgo}일 전"
     
-    // 주소에서 시/도/구 제거 및 위치 설명 제거
-    var addressWithoutCityDistrict = report.title.replace(
-        Regex("^[가-힣]+(?:시|도)\\s+[가-힣]+(?:구|시)\\s*"), 
-        ""
-    )
-    addressWithoutCityDistrict = addressWithoutCityDistrict.replace(
-        Regex("\\s*[가-힣]*역\\s*\\d+번\\s*출구\\s*앞"), 
-        ""
-    ).trim()
+    // 상세 배너 주소: 도로명 주소로 도로명과 건물번호만 표기 (예: "양화로 188"), 패턴 없으면 시/구·역 출구 설명 제거한 값
+    val addressDisplay = formatRoadAddressOnly(report.title).ifBlank {
+        report.title.replace(Regex("^[가-힣]+(?:시|도)\\s+[가-힣]+(?:구|시)\\s*"), "")
+            .replace(Regex("\\s*[가-힣]*역\\s*\\d+번\\s*출구\\s*앞.*"), "").trim()
+    }
     
     // 제목: report.meta가 실제 제목 (예: "맨홀 뚜껑 역류")
     // 주소: report.title이 주소 (예: "서울시 마포구 양화로 188 홍대입구역 1번 출구 앞")
@@ -1852,7 +1903,7 @@ private fun convertToReportCardUi(
         profileImageUrl = report.reporterInfo?.profileImageUrl,
         title = title,
         createdLabel = createdLabel,
-        address = addressWithoutCityDistrict,
+        address = addressDisplay,
         distance = distance,
         okCount = report.positiveFeedbackCount,
         dangerCount = report.negativeFeedbackCount,
@@ -1916,9 +1967,7 @@ private fun convertDetailToReportCardUi(
         "오늘"
     }
 
-    val addressDisplay = (detail.address ?: "").replace(
-        Regex("^[가-힣]+(?:시|도)\\s+[가-힣]+(?:구|시)\\s*"), ""
-    ).replace(Regex("\\s*[가-힣]*역\\s*\\d+번\\s*출구\\s*앞"), "").trim()
+    val addressDisplay = formatRoadAddressOnly(detail.address ?: "")
 
     val distance = if (currentUserLocation != null) {
         val distanceMeters = calculateDistanceMeters(
@@ -1947,6 +1996,35 @@ private fun convertDetailToReportCardUi(
         dangerCount = detail.nowCount,
         isLiked = isLiked
     )
+}
+
+/** 주소를 짧게: 도로명 주소면 "도로명 + 건물번호", 지번이면 "동 + 번지"만 표기 (시/구 등 제거) */
+private fun formatRoadAddressOnly(fullAddress: String): String {
+    if (fullAddress.isBlank()) return fullAddress
+    // 0. "가는 길 000m" 등 거리 문구가 붙어 있으면 제거 (주소만 사용)
+    var s = fullAddress.replace(Regex("\\s+가는\\s+길\\s+\\S+$"), "").trim()
+    // 1. 앞부분 제거: "대한민국 ", "서울 ", "서울특별시 ", "경기도 ", "영등포구 ", "성남시 분당구 " 등
+    s = s
+        .replace(Regex("^(?:대한민국\\s+)?"), "")
+        .replace(Regex("^(?:서울|부산|대구|인천|광주|대전|울산|세종)\\s+"), "")  // "서울 " 등 (시 없이 쓴 경우)
+        .replace(Regex("^(?:[가-힣]+(?:시|도|특별시|광역시)\\s*)+"), "")
+        .replace(Regex("^(?:[가-힣]+(?:구|시|군)\\s*)+"), "")
+        .trim()
+    // 2. 뒤쪽 설명 제거: " 홍대입구역 1번 출구 앞", " 00역 2번 출구" 등
+    s = s.replace(Regex("\\s+[가-힣]*역\\s*\\d*번?\\s*출구.*"), "").trim()
+    s = s.replace(Regex("\\s+앞\\s*$"), "").trim()
+    // 3. 도로명 + 건물번호 (로/대로/길 + 숫자) 우선
+    val roadPattern = Regex("[가-힣]+(?:로|대로|길)\\s*\\d+(?:-\\d+)?")
+    val roadMatch = roadPattern.find(s)
+    if (roadMatch != null) {
+        val raw = roadMatch.value.replace(Regex("\\s+"), " ")
+        return raw.replace(Regex("(로|대로|길)(\\d)"), "$1 $2").trim()
+    }
+    // 4. 지번 주소면 "동 + 번지"만 (예: "여의도동 84-2")
+    val dongPattern = Regex("[가-힣]+동\\s*\\d+(?:-\\d+)?")
+    val dongMatch = dongPattern.find(s)
+    if (dongMatch != null) return dongMatch.value.replace(Regex("\\s+"), " ").trim()
+    return s
 }
 
 // 유효성 상태 계산 함수
@@ -2003,14 +2081,12 @@ private fun NotificationBanner(
         ReportType.DISCOVERY -> Color(0xFF29C488) // 발견 제보
     }
     
-    // 주소에서 시/도/구 제거 및 실제 주소만 추출 (역, 출구, 앞 등의 설명 제거)
-    val addressWithoutCityDistrict = remember(report.title) {
-        var address = report.title
-        // 1. 시/도/구 제거
-        address = address.replace(Regex("^[가-힣]+(?:시|도)\\s+[가-힣]+(?:구|시)\\s*"), "")
-        // 2. 역, 출구, 앞 등의 설명 부분 제거
-        address = address.replace(Regex("\\s*[가-힣]*역\\s*\\d+번\\s*출구\\s*앞.*"), "")
-        address.trim()
+    // 상세 배너 주소: 도로명과 건물번호만 표기 (패턴 없으면 원본 주소에서 시/구 제거한 값 사용)
+    val addressDisplay = remember(report.title) {
+        formatRoadAddressOnly(report.title).ifBlank {
+            report.title.replace(Regex("^[가-힣]+(?:시|도)\\s+[가-힣]+(?:구|시)\\s*"), "")
+                .replace(Regex("\\s*[가-힣]*역\\s*\\d+번\\s*출구\\s*앞.*"), "").trim()
+        }
     }
     
     Surface(
@@ -2024,41 +2100,41 @@ private fun NotificationBanner(
                 .wrapContentWidth()
                 .height(48.dp)
                 .padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Start
-        ) {
-            // 카테고리 컬러 점
-            Box(
-                modifier = Modifier
-                    .size(12.dp)
-                    .clip(CircleShape)
-                    .background(categoryColor)
-            )
-            
-            Spacer(Modifier.width(8.dp))
-            
-            // 주소와 제보 내용(meta) 표시
-            Row(
-                modifier = Modifier.wrapContentWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Start
             ) {
-                // 실제 주소 표시
-                Text(
-                    text = addressWithoutCityDistrict,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
-                    color = Color(0xFF555659), // 회색 텍스트
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                // 카테고리 컬러 점
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(categoryColor)
                 )
-                
+
+            Spacer(Modifier.width(8.dp))
+
+            // 주소와 제보 내용(meta) 표시
+                Row(
+                modifier = Modifier.wrapContentWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                // 도로명 + 건물번호만 표시
+                    Text(
+                        text = addressDisplay,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+                        color = Color(0xFF555659), // 회색 텍스트
+                        maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+
                 // 제보 내용(meta) 표시
-                Text(
-                    text = " ${report.meta}",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
-                    color = Color(0xFF555659), // 회색 텍스트
+                    Text(
+                        text = " ${report.meta}",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+                        color = Color(0xFF555659), // 회색 텍스트
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                )
+                    )
             }
         }
     }
