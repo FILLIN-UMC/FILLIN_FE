@@ -126,6 +126,9 @@ fun MainScreen(
                         Log.d("BottomNav", "onReportClick(nonMy) current=$currentRoute")
                         showReportMenu = true
                     },
+                        onSearchClick = {
+                            innerNavController.navigate("search")
+                        },
                     enableDragToHide = false
                 )
                 }
@@ -196,6 +199,9 @@ fun MainScreen(
                             Log.d("BottomNav", "onReportClick(MyOverlay) current=$currentRoute")
                                 showReportMenu = true
                             },
+                        onSearchClick = {
+                            innerNavController.navigate("search")
+                        },
                             enableDragToHide = false
                         )
         }

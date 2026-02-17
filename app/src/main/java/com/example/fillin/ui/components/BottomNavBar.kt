@@ -61,6 +61,7 @@ fun BottomNavBar(
     my: TabSpec,
     onTabClick: (String) -> Unit,
     onReportClick: () -> Unit,
+    onSearchClick: () -> Unit = {},
     enableDragToHide: Boolean = false
 ) {
     var barHeightPx by remember { mutableFloatStateOf(0f) }
@@ -118,6 +119,10 @@ fun BottomNavBar(
                                 RoundedCornerShape(999.dp)
                             )
                             .background(Color(0xFFF7FBFF))
+                            .clickable {
+                                Log.d("SearchTest", "1. BottomNavBar UI 클릭됨!")
+                                onSearchClick()
+                            }
                             .padding(horizontal = pad14),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
