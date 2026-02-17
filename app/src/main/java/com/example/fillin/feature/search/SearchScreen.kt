@@ -38,8 +38,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
@@ -92,6 +90,7 @@ fun SearchScreen(
     onBack: () -> Unit,
     onSelectPlace: (PlaceItem) -> Unit,
     onClickHotReport: (HotReportItem) -> Unit,
+    onSearchInCurrentLocation: () -> Unit = {}, // 현위치에서 찾기 콜백
     vm: SearchViewModel = run {
         val ctx = LocalContext.current
         viewModel(factory = SearchViewModelFactory(ctx))
@@ -108,7 +107,8 @@ fun SearchScreen(
         onTabChange = { vm.switchTab(it) },
         onRemoveRecent = { vm.removeRecent(it) },
         onSelectPlace = onSelectPlace,
-        onClickHotReport = onClickHotReport
+        onClickHotReport = onClickHotReport,
+        onSearchInCurrentLocation = onSearchInCurrentLocation
     )
 }
 
@@ -122,7 +122,8 @@ private fun SearchScreenContent(
     onTabChange: (SearchTab) -> Unit,
     onRemoveRecent: (String) -> Unit,
     onSelectPlace: (PlaceItem) -> Unit,
-    onClickHotReport: (HotReportItem) -> Unit
+    onClickHotReport: (HotReportItem) -> Unit,
+    onSearchInCurrentLocation: () -> Unit
 ) {
     val isSearchTab = uiState.tab == SearchTab.RECENT
     val hasQuery = uiState.query.isNotBlank()
@@ -191,7 +192,7 @@ private fun SearchScreenContent(
             MapOverlay(
                 results = uiState.places,
                 onClick = onSelectPlace,
-                onMapReady = { map -> naverMap = map } // 여기서 Map 객체를 받아옵니다
+                onMapReady = { map -> naverMap = map }
             )
         }
 
@@ -200,7 +201,7 @@ private fun SearchScreenContent(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.White) // 👈 리스트 화면에만 하얀색 배경 적용
+                    .background(Color.White)
             ) {
                 SearchTabs(tab = uiState.tab, onTabChange = onTabChange)
                 Box(modifier = Modifier.weight(1f)) {
@@ -237,30 +238,46 @@ private fun SearchScreenContent(
             OverlayEmpty()
         }
 
+        // 🌟 현위치 검색 버튼 & 내 위치 버튼 나란히 배치 (검색바 16dp 위)
         AnimatedVisibility(
             visible = uiState.isSearchCompleted,
             enter = fadeIn() + slideInVertically(initialOffsetY = { 50 }),
             exit = fadeOut() + slideOutVertically(targetOffsetY = { 50 }),
             modifier = Modifier
-                .align(Alignment.BottomEnd) // 우측 하단 정렬
-                .padding(end = 16.dp, bottom = 76.dp) // 👈 검색바 높이를 고려해 96dp 띄워줍니다
+                .align(Alignment.BottomCenter) // 중앙 하단 정렬
+                .padding(bottom = 84.dp)
         ) {
-            LocationButton(
-                onClick = {
-                    if (naverMap == null) return@LocationButton
+            // 👇 Row 대신 Box를 사용하여 각 버튼의 위치를 개별적으로 지정합니다.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp) // 양옆 여백
+            ) {
+                // 1. 현위치에서 찾기 버튼 (화면 정중앙 고정)
+                SearchInCurrentLocationButton(
+                    modifier = Modifier.align(Alignment.Center), // 🌟 완벽한 중앙 정렬
+                    onClick = onSearchInCurrentLocation
+                )
 
-                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                        naverMap?.let { map -> presentLocation.moveMapToCurrentLocation(map) }
-                    } else {
-                        locationPermissionLauncher.launch(
-                            arrayOf(
-                                Manifest.permission.ACCESS_FINE_LOCATION,
-                                Manifest.permission.ACCESS_COARSE_LOCATION
+                // 2. 기존 LocationButton (오른쪽 끝 고정)
+                LocationButton(
+                    modifier = Modifier.align(Alignment.CenterEnd), // 🌟 오른쪽 정렬
+                    onClick = {
+                        if (naverMap == null) return@LocationButton
+
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                            naverMap?.let { map -> presentLocation.moveMapToCurrentLocation(map) }
+                        } else {
+                            locationPermissionLauncher.launch(
+                                arrayOf(
+                                    Manifest.permission.ACCESS_FINE_LOCATION,
+                                    Manifest.permission.ACCESS_COARSE_LOCATION
+                                )
                             )
-                        )
+                        }
                     }
-                }
-            )
+                )
+            }
         }
 
         // 5. 플로팅 하단 검색바 레이어 (최상단)
@@ -276,7 +293,7 @@ private fun SearchScreenContent(
                 onClear = onClear,
                 onBack = onBack,
                 isVisible = transitionState,
-                isSearchCompleted = uiState.isSearchCompleted
+                isSearchCompleted = uiState.isSearchCompleted // 🌟 상태 전달
             )
         }
     }
@@ -463,7 +480,7 @@ private fun BottomSearchBar(
     onClear: () -> Unit,
     onBack: () -> Unit,
     isVisible: MutableTransitionState<Boolean>? = null,
-    isSearchCompleted: Boolean = false // 👈 1. 상태를 받는 파라미터 추가!
+    isSearchCompleted: Boolean = false // 🌟 지도 화면 상태값 추가
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -512,9 +529,8 @@ private fun BottomSearchBar(
                 onClick = onBack,
                 modifier = Modifier.size(48.dp),
                 shape = CircleShape,
-                // 🌟 2. 지도 화면이면 흰색, 아니면 기존 회색 적용
+                // 🌟 지도 뷰일 때 흰 배경, 테두리 없음
                 color = if (isSearchCompleted) Color.White else colorResource(id = R.color.grey1),
-                // 🌟 3. 지도 화면이면 테두리 제거(null), 아니면 기존 테두리 적용
                 border = if (isSearchCompleted) null else BorderStroke(1.dp, colorResource(id = R.color.grey2)),
                 shadowElevation = 2.dp
             ) {
@@ -535,9 +551,8 @@ private fun BottomSearchBar(
                 .padding(start = searchBarPadding)
                 .height(48.dp),
             shape = RoundedCornerShape(24.dp),
-            // 🌟 4. 지도 화면이면 흰색, 아니면 기존 회색 적용
+            // 🌟 지도 뷰일 때 흰 배경, 테두리 없음
             color = if (isSearchCompleted) Color.White else colorResource(id = R.color.grey1),
-            // 🌟 5. 지도 화면이면 테두리 제거(null), 아니면 기존 테두리 적용
             border = if (isSearchCompleted) null else BorderStroke(1.dp, colorResource(id = R.color.grey2)),
             shadowElevation = 2.dp
         ) {
@@ -694,25 +709,22 @@ private fun MapOverlay(
     onMapReady: (NaverMap) -> Unit
 ) {
     val context = LocalContext.current
-    val isPreview = LocalInspectionMode.current // 🌟 프리뷰 여부 확인
+    val isPreview = LocalInspectionMode.current
     var naverMap by remember { mutableStateOf<NaverMap?>(null) }
     val markers = remember { mutableListOf<Marker>() }
 
-    // 마커 아이콘 캐싱 (재구성 시 비트맵 메모리 재할당 및 깜빡임 방지)
+    // 마커 아이콘 캐싱
     val markerIconCache = remember { mutableMapOf<String, OverlayImage>() }
 
-    // HomeScreen과 동일한 원형 마커 생성 함수
     fun createCircularMarkerIcon(resId: Int, sizeDp: Int = 42, backgroundColor: Int = android.graphics.Color.WHITE): OverlayImage {
         val originalBitmap = BitmapFactory.decodeResource(context.resources, resId)
         val density = context.resources.displayMetrics.density
 
-        // 1. 중앙 1:1 크롭
         val size = min(originalBitmap.width, originalBitmap.height)
         val x = (originalBitmap.width - size) / 2
         val y = (originalBitmap.height - size) / 2
         val croppedBitmap = Bitmap.createBitmap(originalBitmap, x, y, size, size)
 
-        // 2. 배경 원 생성
         val backgroundSizePx = (sizeDp * density).toInt()
         val markerBitmap = Bitmap.createBitmap(backgroundSizePx, backgroundSizePx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(markerBitmap)
@@ -724,7 +736,6 @@ private fun MapOverlay(
         }
         canvas.drawOval(RectF(0f, 0f, backgroundSizePx.toFloat(), backgroundSizePx.toFloat()), backgroundPaint)
 
-        // 3. 제보 이미지 원형 크롭 (여백 포함)
         val imageSizePx = ((sizeDp - 4) * density).toInt()
         val imageOffset = (backgroundSizePx - imageSizePx) / 2
         val resizedBitmap = Bitmap.createScaledBitmap(croppedBitmap, imageSizePx, imageSizePx, true)
@@ -739,14 +750,12 @@ private fun MapOverlay(
         maskPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
         imageCanvas.drawBitmap(resizedBitmap, null, imageRect, maskPaint)
 
-        // 4. 합성
         canvas.drawBitmap(circularImageBitmap, imageOffset.toFloat(), imageOffset.toFloat(), null)
 
         return OverlayImage.fromBitmap(markerBitmap)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // 🌟 프리뷰 환경일 때는 가짜 회색 배경 렌더링
         if (isPreview) {
             Box(
                 modifier = Modifier
@@ -754,7 +763,6 @@ private fun MapOverlay(
                     .background(Color(0xFFE5E7EB))
             )
         } else {
-            // 실제 환경일 때는 네이버 지도 띄우기
             MapContent(
                 modifier = Modifier.fillMaxSize(),
                 onMapReady = { map ->
@@ -764,7 +772,6 @@ private fun MapOverlay(
             )
         }
 
-        // 2. 검색 결과에 맞춰 마커 갱신
         LaunchedEffect(naverMap, results) {
             naverMap?.let { map ->
                 markers.forEach { it.map = null }
@@ -776,20 +783,18 @@ private fun MapOverlay(
                         val lon = item.x?.toDoubleOrNull()
 
                         if (lat != null && lon != null) {
-                            // PlaceItem의 카테고리 텍스트를 기반으로 HomeScreen과 동일한 색상/아이콘 매칭
                             val categoryStr = item.category ?: ""
                             val backgroundColor = when {
                                 categoryStr.contains("위험") -> android.graphics.Color.parseColor("#FF6060")
                                 categoryStr.contains("불편") -> android.graphics.Color.parseColor("#F5C72F")
-                                else -> android.graphics.Color.parseColor("#29C488") // 발견 및 기타
+                                else -> android.graphics.Color.parseColor("#29C488")
                             }
                             val iconRes = when {
                                 categoryStr.contains("위험") -> R.drawable.ic_report_img
                                 categoryStr.contains("불편") -> R.drawable.ic_report_img_2
-                                else -> R.drawable.ic_report_img_3 // 발견 및 기타
+                                else -> R.drawable.ic_report_img_3
                             }
 
-                            // 캐싱된 아이콘이 있으면 사용, 없으면 새로 그리고 캐시에 저장
                             val cacheKey = "${iconRes}_40_${backgroundColor}"
                             val cachedIcon = markerIconCache[cacheKey] ?: createCircularMarkerIcon(iconRes, 40, backgroundColor).also {
                                 markerIconCache[cacheKey] = it
@@ -798,7 +803,7 @@ private fun MapOverlay(
                             val marker = Marker().apply {
                                 position = LatLng(lat, lon)
                                 this.map = map
-                                this.icon = cachedIcon // ✨ 커스텀 원형 마커 적용
+                                this.icon = cachedIcon
 
                                 setOnClickListener {
                                     onClick(item)
@@ -809,7 +814,6 @@ private fun MapOverlay(
                         }
                     }
 
-                    // 3. 카메라 이동 (첫 번째 유효 결과)
                     val firstValidItem = results.firstOrNull {
                         it.y?.toDoubleOrNull() != null && it.x?.toDoubleOrNull() != null
                     }
@@ -826,6 +830,35 @@ private fun MapOverlay(
     }
 }
 
+// 🌟 현위치에서 찾기 버튼
+@Composable
+private fun SearchInCurrentLocationButton(
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(48.dp),
+        shape = RoundedCornerShape(24.dp), // 타원형
+        color = Color.White,
+        shadowElevation = 0.dp
+    ) {
+        Box(
+            // 아이콘이 빠진 대신 텍스트 양옆 여백을 20dp로 살짝 넓혀주면 훨씬 안정감 있고 예쁩니다
+            modifier = Modifier.padding(horizontal = 20.dp),
+            contentAlignment = Alignment.Center // 완벽한 중앙 정렬
+        ) {
+            Text(
+                text = "현위치에서 찾기",
+                fontSize = 16.sp, // 텍스트 크기 16sp
+                color = colorResource(id = R.color.main), // main 컬러
+                fontWeight = FontWeight.Bold // Bold 처리
+            )
+        }
+    }
+}
+
+// 🌟 내 위치 버튼
 @Composable
 private fun LocationButton(
     modifier: Modifier = Modifier,
@@ -856,12 +889,12 @@ fun SearchScreenInitialPreview() {
             uiState = SearchUiState(
                 recentQueries = listOf("위험 요소", "경사로", "주변 놀거리", "팝업", "붕어빵")
             ),
-            onBack = {}, onQueryChange = {}, onSearch = {}, onClear = {}, onTabChange = {}, onRemoveRecent = {}, onSelectPlace = {}, onClickHotReport = {}
+            onBack = {}, onQueryChange = {}, onSearch = {}, onClear = {}, onTabChange = {}, onRemoveRecent = {}, onSelectPlace = {}, onClickHotReport = {}, onSearchInCurrentLocation = {}
         )
     }
 }
 
-// 🌟 2. 추가된 프리뷰: 검색 완료 후 (지도 배경 + 위치 버튼 + 하단 검색바)
+// 🌟 2. 추가된 프리뷰: 검색 완료 후 (지도 배경 + 위치 버튼들 + 하단 검색바)
 @Preview(showBackground = true, name = "2. 검색 후 (지도 화면)")
 @Composable
 fun SearchScreenMapPreview() {
@@ -882,7 +915,7 @@ fun SearchScreenMapPreview() {
                     )
                 )
             ),
-            onBack = {}, onQueryChange = {}, onSearch = {}, onClear = {}, onTabChange = {}, onRemoveRecent = {}, onSelectPlace = {}, onClickHotReport = {}
+            onBack = {}, onQueryChange = {}, onSearch = {}, onClear = {}, onTabChange = {}, onRemoveRecent = {}, onSelectPlace = {}, onClickHotReport = {}, onSearchInCurrentLocation = {}
         )
     }
 }
