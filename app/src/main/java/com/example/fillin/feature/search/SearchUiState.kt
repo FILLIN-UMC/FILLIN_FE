@@ -28,5 +28,7 @@ data class SearchUiState(
 
     // ✅ 에러 분리
     val searchError: String? = null,
-    val hotError: String? = null
+    val hotError: String? = null,
+
+    val isSearchCompleted: Boolean = false
 )

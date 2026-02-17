@@ -1,5 +1,7 @@
 package com.example.fillin.ui.navigation
 
+import android.util.Log
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -18,6 +20,9 @@ import com.example.fillin.feature.expiringreport.ExpiringReportDetailScreen
 import com.example.fillin.feature.myreports.MyReportsScreen
 import com.example.fillin.feature.notifications.NotificationsScreen
 import com.example.fillin.data.AppPreferences
+import com.example.fillin.feature.search.SearchScreen
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 
 
 @Composable
@@ -65,6 +70,26 @@ fun MainNavGraph(
         }
         composable("expiring_report_detail") {
             ExpiringReportDetailScreen(navController = navController)
+        }
+
+        composable(
+            route = "search",
+            enterTransition = { fadeIn(animationSpec = tween(700)) },
+            popExitTransition = { fadeOut(animationSpec = tween(700)) }
+        ) {
+            Log.d("SearchTest", "3. MainNavGraph 라우트 도착! SearchScreen 띄움!")
+            SearchScreen(
+                onBack = {
+                    navController.popBackStack()
+                },
+                onSelectPlace = { place ->
+                    navController.popBackStack()
+                },
+                onClickHotReport = { reportId ->
+                    navController.previousBackStackEntry?.savedStateHandle?.set("selected_report_id", reportId)
+                    navController.popBackStack()
+                }
+            )
         }
     }
 }

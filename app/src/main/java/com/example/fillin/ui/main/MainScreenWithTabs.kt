@@ -87,6 +87,10 @@ fun MainScreen() {
                             restoreState = true
                         }
                     },
+                    onSearchClick = {
+                        Log.d("SearchTest", "2. MainScreenWithTabs 콜백 도착!")
+                        navController.navigate("search")
+                    },
                     enableDragToHide = false
                 )
             }
@@ -146,6 +150,10 @@ fun MainScreen() {
                                     launchSingleTop = true
                                     restoreState = true
                                 }
+                            },
+                            onSearchClick = {
+                                Log.d("SearchTest", "2. MainScreenWithTabs 콜백 도착! 라우팅 요청함!")
+                                navController.navigate("search")
                             },
                             enableDragToHide = false
                         )

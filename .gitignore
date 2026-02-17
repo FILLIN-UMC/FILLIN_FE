@@ -16,3 +16,4 @@ local.properties
 
 # Google/Firebase config (contains app-specific keys)
 **/google-services.json
+.idea/

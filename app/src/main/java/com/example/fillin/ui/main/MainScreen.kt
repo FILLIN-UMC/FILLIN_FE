@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.navigation.NavController
@@ -92,46 +93,54 @@ fun MainScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             bottomBar = {
-            // Use Scaffold bottomBar for non-MyPage screens only.
-            // (On MyPage we draw the bar as an overlay so dragging it down reveals the content behind it.)
-            if (showBottomBar && !isMyPage) {
-                // Home 화면에서는 isHomeBottomBarVisible 상태를 확인
-                val shouldShowBottomBar = when (currentRoute) {
-                    MainTab.Home.route -> isHomeBottomBarVisible
-                    else -> true
-                }
-                
-                if (shouldShowBottomBar) {
+                val shouldShowBottomBar = showBottomBar && !isMyPage &&
+                        (currentRoute != MainTab.Home.route || isHomeBottomBarVisible)
+
+                AnimatedVisibility(
+                    visible = shouldShowBottomBar,
+                    enter = slideInVertically(
+                        initialOffsetY = { fullHeight -> fullHeight },
+                        animationSpec = tween(durationMillis = 700)
+                    ),
+                    exit = slideOutVertically(
+                        targetOffsetY = { fullHeight -> fullHeight },
+                        animationSpec = tween(
+                            durationMillis = 700,
+                            delayMillis = 100
+                        )
+                    ) + fadeOut(tween(700))
+                ) {
                     BottomNavBar(
-                    selectedRoute = currentRoute,
-                    home = TabSpec(MainTab.Home.route, MainTab.Home.label, MainTab.Home.icon),
-                    report = TabSpec(MainTab.Report.route, MainTab.Report.label, MainTab.Report.icon),
-                    my = TabSpec(MainTab.My.route, MainTab.My.label, MainTab.My.icon),
-                    onTabClick = { route ->
-                        Log.d("BottomNav", "onTabClick(nonMy) route=$route current=$currentRoute")
-                        // Report 탭을 클릭하면 제보 메뉴 표시, 아니면 해당 화면으로 이동
-                        if (route == MainTab.Report.route) {
-                            showReportMenu = true
-                        } else {
-                            innerNavController.navigate(route) {
-                                popUpTo(innerNavController.graph.findStartDestination().id) {
-                                    saveState = true
+                        selectedRoute = currentRoute,
+                        home = TabSpec(MainTab.Home.route, MainTab.Home.label, MainTab.Home.icon),
+                        report = TabSpec(MainTab.Report.route, MainTab.Report.label, MainTab.Report.icon),
+                        my = TabSpec(MainTab.My.route, MainTab.My.label, MainTab.My.icon),
+                        onTabClick = { route ->
+                            Log.d("BottomNav", "onTabClick(nonMy) route=$route current=$currentRoute")
+                            if (route == MainTab.Report.route) {
+                                showReportMenu = true
+                            } else {
+                                innerNavController.navigate(route) {
+                                    popUpTo(innerNavController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
                                 }
-                                launchSingleTop = true
-                                restoreState = true
                             }
-                        }
-                    },
-                    onReportClick = {
-                        Log.d("BottomNav", "onReportClick(nonMy) current=$currentRoute")
-                        showReportMenu = true
-                    },
-                    enableDragToHide = false
-                )
+                        },
+                        onReportClick = {
+                            Log.d("BottomNav", "onReportClick(nonMy) current=$currentRoute")
+                            showReportMenu = true
+                        },
+                        onSearchClick = {
+                            innerNavController.navigate("search")
+                        },
+                        enableDragToHide = false
+                    )
                 }
             }
-        }
-    ) { innerPadding ->
+        ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -196,6 +205,9 @@ fun MainScreen(
                             Log.d("BottomNav", "onReportClick(MyOverlay) current=$currentRoute")
                                 showReportMenu = true
                             },
+                        onSearchClick = {
+                            innerNavController.navigate("search")
+                        },
                             enableDragToHide = false
                         )
         }
