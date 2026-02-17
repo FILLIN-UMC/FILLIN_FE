@@ -84,6 +84,7 @@ import com.naver.maps.map.NaverMap
 import com.naver.maps.map.overlay.Marker
 import com.naver.maps.map.overlay.OverlayImage
 import kotlin.math.min
+import androidx.activity.compose.BackHandler
 
 @Composable
 fun SearchScreen(
@@ -150,6 +151,28 @@ private fun SearchScreenContent(
         if (hasQuery && !uiState.isSearchCompleted) {
             onSearch()
         }
+    }
+
+    val handleBack = {
+        if (uiState.isSearchCompleted) {
+            onClear() // 지도 화면 -> 기본 검색 화면으로
+        } else {
+            onBack()  // 기본 화면 -> 홈 화면으로
+        }
+    }
+
+    val handleClearAction = {
+        if (uiState.isSearchCompleted) {
+            // 지도 화면(검색 완료 상태)에서 X를 누르면 -> 홈 화면으로 완전히 나가기!
+            onBack()
+        } else {
+            // 기본 검색 화면에서 X를 누르면 -> 검색창 텍스트만 지우기!
+            onClear()
+        }
+    }
+
+    BackHandler(enabled = uiState.isSearchCompleted) {
+        handleBack()
     }
 
     // 🌟 프리뷰 환경 감지 및 딜레이 처리
@@ -290,8 +313,8 @@ private fun SearchScreenContent(
                 query = uiState.query,
                 onQueryChange = onQueryChange,
                 onSearch = onSearch,
-                onClear = onClear,
-                onBack = onBack,
+                onClear = handleClearAction,
+                onBack = handleBack,
                 isVisible = transitionState,
                 isSearchCompleted = uiState.isSearchCompleted // 🌟 상태 전달
             )
