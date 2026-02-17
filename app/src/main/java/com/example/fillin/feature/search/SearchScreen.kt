@@ -35,7 +35,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -61,6 +63,12 @@ import com.example.fillin.domain.model.HotReportItem
 import com.example.fillin.domain.model.PlaceItem
 import com.example.fillin.ui.theme.FILLINTheme
 import com.example.fillin.R
+import com.example.fillin.ui.map.MapContent
+import com.naver.maps.geometry.LatLng
+import com.naver.maps.map.CameraAnimation
+import com.naver.maps.map.CameraUpdate
+import com.naver.maps.map.NaverMap
+import com.naver.maps.map.overlay.Marker
 
 @Composable
 fun SearchScreen(
@@ -118,77 +126,85 @@ private fun SearchScreenContent(
         if (state) 0.dp else (-120).dp
     }
 
-    Column(
+    val handleBackgroundTap = {
+        keyboardController?.hide()
+        focusManager.clearFocus()
+        if (hasQuery && !uiState.isSearchCompleted) {
+            onSearch()
+        }
+    }
+
+    var isMapReadyToLoad by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        // 화면 전환 애니메이션이 보통 300~400ms 정도 걸리므로, 그 이후에 지도를 로드합니다.
+        kotlinx.coroutines.delay(400)
+        isMapReadyToLoad = true
+    }
+
+    // 🌟 1. 최상위 레이아웃
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.White)
             .statusBarsPadding()
             .navigationBarsPadding()
             .pointerInput(Unit) {
-                detectTapGestures(onTap = {
-                    keyboardController?.hide()
-                    focusManager.clearFocus()
-
-                    if (hasQuery && !uiState.isSearchCompleted) {
-                        onSearch()
-                    }
-                })
+                detectTapGestures(onTap = { handleBackgroundTap() })
             }
     ) {
-        SearchTabs(
-            tab = uiState.tab,
-            onTabChange = onTabChange
-        )
 
-        val handleBackgroundTap = {
-            keyboardController?.hide()
-            focusManager.clearFocus()
-            if (hasQuery && !uiState.isSearchCompleted) {
-                onSearch()
+        // 🌟 2. 지도 화면 (가장 바닥에 배치)
+        if (isMapReadyToLoad) {
+            MapOverlay(results = uiState.places, onClick = onSelectPlace)
+        }
+
+        // 🌟 3. 기본 화면 (최근/인기 탭) - 여기에만 하얀 배경을 줍니다!
+        if (!uiState.isSearching && !uiState.isSearchCompleted && uiState.searchError == null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White) // 👈 리스트 화면에만 하얀색 배경 적용
+            ) {
+                SearchTabs(tab = uiState.tab, onTabChange = onTabChange)
+                Box(modifier = Modifier.weight(1f)) {
+                    when (uiState.tab) {
+                        SearchTab.RECENT -> {
+                            RecentContent(
+                                recent = uiState.recentQueries,
+                                onClick = { q -> onQueryChange(q); onSearch() },
+                                onRemove = onRemoveRecent,
+                                onEmptySpaceClick = handleBackgroundTap
+                            )
+                        }
+                        SearchTab.HOT -> {
+                            HotReportGridContent(
+                                hotReports = uiState.hotReports,
+                                hotError = uiState.hotError,
+                                isLoading = uiState.isHotLoading,
+                                onClickHotReport = onClickHotReport,
+                                onEmptySpaceClick = handleBackgroundTap
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(72.dp)) // 하단 검색바 여백
             }
         }
 
-        Box(modifier = Modifier.weight(1f)) {
-            if (!uiState.isSearching && !uiState.isSearchCompleted && uiState.searchError == null) {
-                when (uiState.tab) {
-                    SearchTab.RECENT -> {
-                        RecentContent(
-                            recent = uiState.recentQueries,
-                            onClick = { q ->
-                                onQueryChange(q)
-                                onSearch()
-                            },
-                            onRemove = onRemoveRecent,
-                            onEmptySpaceClick = handleBackgroundTap
-                        )
-                    }
-                    SearchTab.HOT -> {
-                        HotReportGridContent(
-                            hotReports = uiState.hotReports,
-                            hotError = uiState.hotError,
-                            isLoading = uiState.isHotLoading,
-                            onClickHotReport = onClickHotReport,
-                            onEmptySpaceClick = handleBackgroundTap
-                        )
-                    }
-                }
-            }
-
-            if (uiState.isSearching) {
-                OverlayLoading()
-            } else if (uiState.searchError != null) {
-                OverlayError(message = uiState.searchError, onRetry = onSearch)
-            } else if (uiState.isSearchCompleted) {
-                if (uiState.places.isEmpty()) {
-                    OverlayEmpty()
-                } else {
-                    MapOverlay(results = uiState.places, onClick = onSelectPlace)
-                }
-            }
+        // 4. 로딩 / 에러 / 결과 없음 오버레이 (얘네들도 각자 하얀 배경을 가지고 있어야 함)
+        if (uiState.isSearching) {
+            OverlayLoading()
+        } else if (uiState.searchError != null) {
+            OverlayError(message = uiState.searchError, onRetry = onSearch)
+        } else if (uiState.isSearchCompleted && uiState.places.isEmpty()) {
+            OverlayEmpty()
         }
 
+        // 5. 플로팅 하단 검색바 레이어 (최상단)
         Box(
             modifier = Modifier
+                .align(Alignment.BottomCenter) // 화면 바닥 중앙에 고정
                 .offset(y = searchBarOffsetY)
         ) {
             BottomSearchBar(
@@ -581,26 +597,93 @@ private fun GuideBlock() {
     }
 }
 
-@Composable private fun OverlayLoading() { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
-@Composable private fun OverlayEmpty() { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("검색 결과가 없어요.") } }
-@Composable private fun OverlayError(message: String, onRetry: () -> Unit) {
-    Column(Modifier.fillMaxSize(), Arrangement.Center, Alignment.CenterHorizontally) {
-        Text(message); Button(onRetry) { Text("재시도") }
+@Composable
+private fun OverlayLoading() {
+    Box(Modifier.fillMaxSize().background(Color.White), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator()
+    }
+}
+
+@Composable
+private fun OverlayEmpty() {
+    Box(Modifier.fillMaxSize().background(Color.White), contentAlignment = Alignment.Center) {
+        Text("검색 결과가 없어요.")
+    }
+}
+
+@Composable
+private fun OverlayError(message: String, onRetry: () -> Unit) {
+    Column(Modifier.fillMaxSize().background(Color.White), Arrangement.Center, Alignment.CenterHorizontally) {
+        Text(message)
+        Button(onClick = onRetry) { Text("재시도") }
     }
 }
 
 @Composable
 private fun MapOverlay(results: List<PlaceItem>, onClick: (PlaceItem) -> Unit) {
-    Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
-        // TODO: 여기에 네이버/카카오/구글 지도 SDK 컴포저블을 넣으시면 됩니다!
+    // 지도 객체와 마커 리스트 상태 관리
+    var naverMap by remember { mutableStateOf<NaverMap?>(null) }
+    val markers = remember { mutableListOf<Marker>() }
 
-        // 일단 화면 전환 테스트를 위한 임시 텍스트입니다.
-        Column(
-            modifier = Modifier.align(Alignment.Center),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text("🗺️ 지도가 들어갈 자리입니다.", style = MaterialTheme.typography.titleMedium)
-            Text("${results.size}개의 결과 마커 표시 예정", color = Color.Gray)
+    Box(modifier = Modifier.fillMaxSize()) {
+        // 1. 실제 지도 화면 띄우기
+        MapContent(
+            modifier = Modifier.fillMaxSize(),
+            onMapReady = { map ->
+                naverMap = map
+            }
+        )
+
+        // 2. 지도가 준비되거나 검색 결과(results)가 바뀌면 실행되는 로직
+        LaunchedEffect(naverMap, results) {
+            naverMap?.let { map ->
+                // 기존에 찍혀있던 마커들 모두 지우기 (초기화)
+                markers.forEach { it.map = null }
+                markers.clear()
+
+                if (results.isNotEmpty()) {
+                    // 결과 리스트를 순회하며 마커 생성
+                    results.forEach { item ->
+
+                        val lat = item.y?.toDoubleOrNull()
+                        val lon = item.x?.toDoubleOrNull()
+
+                        // 좌표 값이 정상적으로 존재할 때만 마커를 찍습니다.
+                        if (lat != null && lon != null) {
+                            val marker = Marker().apply {
+                                position = LatLng(lat, lon)
+                                this.map = map
+
+                                // ❌ 문제의 원인이었던 captionText 삭제!
+                                // captionText = item.name
+
+                                // 마커 터치 시 리스트에서 선택한 것과 동일하게 동작
+                                setOnClickListener {
+                                    onClick(item)
+                                    true
+                                }
+                            }
+                            markers.add(marker)
+                        }
+                    }
+
+                    // 3. 좌표가 존재하는 첫 번째 검색 결과 위치로 카메라(화면) 부드럽게 이동
+                    val firstValidItem = results.firstOrNull {
+                        it.y?.toDoubleOrNull() != null && it.x?.toDoubleOrNull() != null
+                    }
+
+                    firstValidItem?.let { item ->
+                        val lat = item.y!!.toDouble()
+                        val lon = item.x!!.toDouble()
+
+                        val cameraUpdate = CameraUpdate.scrollTo(
+                            LatLng(lat, lon)
+                        ).animate(CameraAnimation.Easing)
+
+                        map.moveCamera(cameraUpdate)
+                    }
+                }
+            }
         }
     }
 }
