@@ -1,14 +1,26 @@
 package com.example.fillin.feature.search
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.RectF
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateDp
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
-import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
-import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -47,6 +59,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
@@ -57,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.fillin.domain.model.HotReportItem
@@ -64,18 +78,12 @@ import com.example.fillin.domain.model.PlaceItem
 import com.example.fillin.ui.theme.FILLINTheme
 import com.example.fillin.R
 import com.example.fillin.ui.map.MapContent
+import com.example.fillin.ui.map.PresentLocation
 import com.naver.maps.geometry.LatLng
 import com.naver.maps.map.CameraAnimation
 import com.naver.maps.map.CameraUpdate
 import com.naver.maps.map.NaverMap
 import com.naver.maps.map.overlay.Marker
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffXfermode
-import android.graphics.RectF
 import com.naver.maps.map.overlay.OverlayImage
 import kotlin.math.min
 
@@ -143,12 +151,27 @@ private fun SearchScreenContent(
         }
     }
 
-    var isMapReadyToLoad by remember { mutableStateOf(false) }
+    // 🌟 프리뷰 환경 감지 및 딜레이 처리
+    val isPreview = LocalInspectionMode.current
+    var isMapReadyToLoad by remember { mutableStateOf(isPreview) }
 
     LaunchedEffect(Unit) {
-        // 화면 전환 애니메이션이 보통 300~400ms 정도 걸리므로, 그 이후에 지도를 로드합니다.
-        kotlinx.coroutines.delay(400)
-        isMapReadyToLoad = true
+        if (!isPreview) {
+            kotlinx.coroutines.delay(400)
+            isMapReadyToLoad = true
+        }
+    }
+
+    val context = LocalContext.current
+    var naverMap by remember { mutableStateOf<NaverMap?>(null) }
+    val presentLocation = remember { PresentLocation(context) }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
+            naverMap?.let { map -> presentLocation.moveMapToCurrentLocation(map) }
+        }
     }
 
     // 🌟 1. 최상위 레이아웃
@@ -165,7 +188,11 @@ private fun SearchScreenContent(
 
         // 🌟 2. 지도 화면 (가장 바닥에 배치)
         if (isMapReadyToLoad) {
-            MapOverlay(results = uiState.places, onClick = onSelectPlace)
+            MapOverlay(
+                results = uiState.places,
+                onClick = onSelectPlace,
+                onMapReady = { map -> naverMap = map } // 여기서 Map 객체를 받아옵니다
+            )
         }
 
         // 🌟 3. 기본 화면 (최근/인기 탭) - 여기에만 하얀 배경을 줍니다!
@@ -210,6 +237,32 @@ private fun SearchScreenContent(
             OverlayEmpty()
         }
 
+        AnimatedVisibility(
+            visible = uiState.isSearchCompleted,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { 50 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { 50 }),
+            modifier = Modifier
+                .align(Alignment.BottomEnd) // 우측 하단 정렬
+                .padding(end = 16.dp, bottom = 76.dp) // 👈 검색바 높이를 고려해 96dp 띄워줍니다
+        ) {
+            LocationButton(
+                onClick = {
+                    if (naverMap == null) return@LocationButton
+
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                        naverMap?.let { map -> presentLocation.moveMapToCurrentLocation(map) }
+                    } else {
+                        locationPermissionLauncher.launch(
+                            arrayOf(
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            )
+                        )
+                    }
+                }
+            )
+        }
+
         // 5. 플로팅 하단 검색바 레이어 (최상단)
         Box(
             modifier = Modifier
@@ -222,7 +275,8 @@ private fun SearchScreenContent(
                 onSearch = onSearch,
                 onClear = onClear,
                 onBack = onBack,
-                isVisible = transitionState
+                isVisible = transitionState,
+                isSearchCompleted = uiState.isSearchCompleted
             )
         }
     }
@@ -408,7 +462,8 @@ private fun BottomSearchBar(
     onSearch: () -> Unit,
     onClear: () -> Unit,
     onBack: () -> Unit,
-    isVisible: MutableTransitionState<Boolean>? = null
+    isVisible: MutableTransitionState<Boolean>? = null,
+    isSearchCompleted: Boolean = false // 👈 1. 상태를 받는 파라미터 추가!
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -457,8 +512,10 @@ private fun BottomSearchBar(
                 onClick = onBack,
                 modifier = Modifier.size(48.dp),
                 shape = CircleShape,
-                color = colorResource(id = R.color.grey1),
-                border = BorderStroke(1.dp, colorResource(id = R.color.grey2)),
+                // 🌟 2. 지도 화면이면 흰색, 아니면 기존 회색 적용
+                color = if (isSearchCompleted) Color.White else colorResource(id = R.color.grey1),
+                // 🌟 3. 지도 화면이면 테두리 제거(null), 아니면 기존 테두리 적용
+                border = if (isSearchCompleted) null else BorderStroke(1.dp, colorResource(id = R.color.grey2)),
                 shadowElevation = 2.dp
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -478,8 +535,10 @@ private fun BottomSearchBar(
                 .padding(start = searchBarPadding)
                 .height(48.dp),
             shape = RoundedCornerShape(24.dp),
-            color = colorResource(id = R.color.grey1),
-            border = BorderStroke(1.dp, colorResource(id = R.color.grey2)),
+            // 🌟 4. 지도 화면이면 흰색, 아니면 기존 회색 적용
+            color = if (isSearchCompleted) Color.White else colorResource(id = R.color.grey1),
+            // 🌟 5. 지도 화면이면 테두리 제거(null), 아니면 기존 테두리 적용
+            border = if (isSearchCompleted) null else BorderStroke(1.dp, colorResource(id = R.color.grey2)),
             shadowElevation = 2.dp
         ) {
             BasicTextField(
@@ -629,8 +688,13 @@ private fun OverlayError(message: String, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun MapOverlay(results: List<PlaceItem>, onClick: (PlaceItem) -> Unit) {
+private fun MapOverlay(
+    results: List<PlaceItem>,
+    onClick: (PlaceItem) -> Unit,
+    onMapReady: (NaverMap) -> Unit
+) {
     val context = LocalContext.current
+    val isPreview = LocalInspectionMode.current // 🌟 프리뷰 여부 확인
     var naverMap by remember { mutableStateOf<NaverMap?>(null) }
     val markers = remember { mutableListOf<Marker>() }
 
@@ -682,11 +746,23 @@ private fun MapOverlay(results: List<PlaceItem>, onClick: (PlaceItem) -> Unit) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // 1. 지도 띄우기
-        MapContent(
-            modifier = Modifier.fillMaxSize(),
-            onMapReady = { map -> naverMap = map }
-        )
+        // 🌟 프리뷰 환경일 때는 가짜 회색 배경 렌더링
+        if (isPreview) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFFE5E7EB))
+            )
+        } else {
+            // 실제 환경일 때는 네이버 지도 띄우기
+            MapContent(
+                modifier = Modifier.fillMaxSize(),
+                onMapReady = { map ->
+                    naverMap = map
+                    onMapReady(map)
+                }
+            )
+        }
 
         // 2. 검색 결과에 맞춰 마커 갱신
         LaunchedEffect(naverMap, results) {
@@ -750,13 +826,61 @@ private fun MapOverlay(results: List<PlaceItem>, onClick: (PlaceItem) -> Unit) {
     }
 }
 
-@Preview(showBackground = true)
 @Composable
-fun SearchScreenPreview() {
+private fun LocationButton(
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(Color.White)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.ic_user_location),
+            contentDescription = "내 위치",
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
+
+// 🌟 1. 기존 프리뷰: 검색 전 (최근 검색어 / 인기 탭 화면)
+@Preview(showBackground = true, name = "1. 검색 전 (기본 화면)")
+@Composable
+fun SearchScreenInitialPreview() {
     FILLINTheme {
         SearchScreenContent(
             uiState = SearchUiState(
                 recentQueries = listOf("위험 요소", "경사로", "주변 놀거리", "팝업", "붕어빵")
+            ),
+            onBack = {}, onQueryChange = {}, onSearch = {}, onClear = {}, onTabChange = {}, onRemoveRecent = {}, onSelectPlace = {}, onClickHotReport = {}
+        )
+    }
+}
+
+// 🌟 2. 추가된 프리뷰: 검색 완료 후 (지도 배경 + 위치 버튼 + 하단 검색바)
+@Preview(showBackground = true, name = "2. 검색 후 (지도 화면)")
+@Composable
+fun SearchScreenMapPreview() {
+    FILLINTheme {
+        SearchScreenContent(
+            uiState = SearchUiState(
+                query = "홍대입구",
+                isSearchCompleted = true, // 지도 표시 상태
+                isSearching = false,
+                places = listOf(
+                    PlaceItem(
+                        id = "1",
+                        name = "홍대역",
+                        address = "서울시 마포구",
+                        x = "126.9",
+                        y = "37.5",
+                        category = "위험"
+                    )
+                )
             ),
             onBack = {}, onQueryChange = {}, onSearch = {}, onClear = {}, onTabChange = {}, onRemoveRecent = {}, onSelectPlace = {}, onClickHotReport = {}
         )
