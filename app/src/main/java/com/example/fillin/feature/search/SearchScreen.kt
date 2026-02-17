@@ -92,6 +92,7 @@ private fun SearchScreenContent(
             .fillMaxSize()
             .background(Color.White)
             .statusBarsPadding() // 상태바 영역 확보
+            .navigationBarsPadding()
     ) {
         // 1. 상단 탭 영역
         SearchTabs(
