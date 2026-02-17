@@ -69,6 +69,15 @@ import com.naver.maps.map.CameraAnimation
 import com.naver.maps.map.CameraUpdate
 import com.naver.maps.map.NaverMap
 import com.naver.maps.map.overlay.Marker
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.RectF
+import com.naver.maps.map.overlay.OverlayImage
+import kotlin.math.min
 
 @Composable
 fun SearchScreen(
@@ -621,43 +630,100 @@ private fun OverlayError(message: String, onRetry: () -> Unit) {
 
 @Composable
 private fun MapOverlay(results: List<PlaceItem>, onClick: (PlaceItem) -> Unit) {
-    // 지도 객체와 마커 리스트 상태 관리
+    val context = LocalContext.current
     var naverMap by remember { mutableStateOf<NaverMap?>(null) }
     val markers = remember { mutableListOf<Marker>() }
 
+    // 마커 아이콘 캐싱 (재구성 시 비트맵 메모리 재할당 및 깜빡임 방지)
+    val markerIconCache = remember { mutableMapOf<String, OverlayImage>() }
+
+    // HomeScreen과 동일한 원형 마커 생성 함수
+    fun createCircularMarkerIcon(resId: Int, sizeDp: Int = 42, backgroundColor: Int = android.graphics.Color.WHITE): OverlayImage {
+        val originalBitmap = BitmapFactory.decodeResource(context.resources, resId)
+        val density = context.resources.displayMetrics.density
+
+        // 1. 중앙 1:1 크롭
+        val size = min(originalBitmap.width, originalBitmap.height)
+        val x = (originalBitmap.width - size) / 2
+        val y = (originalBitmap.height - size) / 2
+        val croppedBitmap = Bitmap.createBitmap(originalBitmap, x, y, size, size)
+
+        // 2. 배경 원 생성
+        val backgroundSizePx = (sizeDp * density).toInt()
+        val markerBitmap = Bitmap.createBitmap(backgroundSizePx, backgroundSizePx, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(markerBitmap)
+
+        val backgroundPaint = Paint().apply {
+            isAntiAlias = true
+            color = backgroundColor
+            style = Paint.Style.FILL
+        }
+        canvas.drawOval(RectF(0f, 0f, backgroundSizePx.toFloat(), backgroundSizePx.toFloat()), backgroundPaint)
+
+        // 3. 제보 이미지 원형 크롭 (여백 포함)
+        val imageSizePx = ((sizeDp - 4) * density).toInt()
+        val imageOffset = (backgroundSizePx - imageSizePx) / 2
+        val resizedBitmap = Bitmap.createScaledBitmap(croppedBitmap, imageSizePx, imageSizePx, true)
+
+        val circularImageBitmap = Bitmap.createBitmap(imageSizePx, imageSizePx, Bitmap.Config.ARGB_8888)
+        val imageCanvas = Canvas(circularImageBitmap)
+
+        val maskPaint = Paint().apply { isAntiAlias = true }
+        val imageRect = RectF(0f, 0f, imageSizePx.toFloat(), imageSizePx.toFloat())
+        imageCanvas.drawOval(imageRect, maskPaint)
+
+        maskPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
+        imageCanvas.drawBitmap(resizedBitmap, null, imageRect, maskPaint)
+
+        // 4. 합성
+        canvas.drawBitmap(circularImageBitmap, imageOffset.toFloat(), imageOffset.toFloat(), null)
+
+        return OverlayImage.fromBitmap(markerBitmap)
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
-        // 1. 실제 지도 화면 띄우기
+        // 1. 지도 띄우기
         MapContent(
             modifier = Modifier.fillMaxSize(),
-            onMapReady = { map ->
-                naverMap = map
-            }
+            onMapReady = { map -> naverMap = map }
         )
 
-        // 2. 지도가 준비되거나 검색 결과(results)가 바뀌면 실행되는 로직
+        // 2. 검색 결과에 맞춰 마커 갱신
         LaunchedEffect(naverMap, results) {
             naverMap?.let { map ->
-                // 기존에 찍혀있던 마커들 모두 지우기 (초기화)
                 markers.forEach { it.map = null }
                 markers.clear()
 
                 if (results.isNotEmpty()) {
-                    // 결과 리스트를 순회하며 마커 생성
                     results.forEach { item ->
-
                         val lat = item.y?.toDoubleOrNull()
                         val lon = item.x?.toDoubleOrNull()
 
-                        // 좌표 값이 정상적으로 존재할 때만 마커를 찍습니다.
                         if (lat != null && lon != null) {
+                            // PlaceItem의 카테고리 텍스트를 기반으로 HomeScreen과 동일한 색상/아이콘 매칭
+                            val categoryStr = item.category ?: ""
+                            val backgroundColor = when {
+                                categoryStr.contains("위험") -> android.graphics.Color.parseColor("#FF6060")
+                                categoryStr.contains("불편") -> android.graphics.Color.parseColor("#F5C72F")
+                                else -> android.graphics.Color.parseColor("#29C488") // 발견 및 기타
+                            }
+                            val iconRes = when {
+                                categoryStr.contains("위험") -> R.drawable.ic_report_img
+                                categoryStr.contains("불편") -> R.drawable.ic_report_img_2
+                                else -> R.drawable.ic_report_img_3 // 발견 및 기타
+                            }
+
+                            // 캐싱된 아이콘이 있으면 사용, 없으면 새로 그리고 캐시에 저장
+                            val cacheKey = "${iconRes}_40_${backgroundColor}"
+                            val cachedIcon = markerIconCache[cacheKey] ?: createCircularMarkerIcon(iconRes, 40, backgroundColor).also {
+                                markerIconCache[cacheKey] = it
+                            }
+
                             val marker = Marker().apply {
                                 position = LatLng(lat, lon)
                                 this.map = map
+                                this.icon = cachedIcon // ✨ 커스텀 원형 마커 적용
 
-                                // ❌ 문제의 원인이었던 captionText 삭제!
-                                // captionText = item.name
-
-                                // 마커 터치 시 리스트에서 선택한 것과 동일하게 동작
                                 setOnClickListener {
                                     onClick(item)
                                     true
@@ -667,19 +733,15 @@ private fun MapOverlay(results: List<PlaceItem>, onClick: (PlaceItem) -> Unit) {
                         }
                     }
 
-                    // 3. 좌표가 존재하는 첫 번째 검색 결과 위치로 카메라(화면) 부드럽게 이동
+                    // 3. 카메라 이동 (첫 번째 유효 결과)
                     val firstValidItem = results.firstOrNull {
                         it.y?.toDoubleOrNull() != null && it.x?.toDoubleOrNull() != null
                     }
 
                     firstValidItem?.let { item ->
-                        val lat = item.y!!.toDouble()
-                        val lon = item.x!!.toDouble()
-
                         val cameraUpdate = CameraUpdate.scrollTo(
-                            LatLng(lat, lon)
+                            LatLng(item.y!!.toDouble(), item.x!!.toDouble())
                         ).animate(CameraAnimation.Easing)
-
                         map.moveCamera(cameraUpdate)
                     }
                 }
