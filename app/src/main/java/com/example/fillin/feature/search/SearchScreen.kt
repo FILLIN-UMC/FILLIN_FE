@@ -153,29 +153,31 @@ private fun SearchScreenContent(
         }
     }
 
+    // 🌟 1. 상태 분기 로직: 검색이 완료되었고, 결과 장소가 있을 때만 '지도 모드'로 간주
+    val showMapView = uiState.isSearchCompleted && uiState.places.isNotEmpty()
+
     val handleBack = {
         if (uiState.isSearchCompleted) {
-            onClear() // 지도 화면 -> 기본 검색 화면으로
+            onClear() // 결과가 있든 없든, 검색된 상태면 지우고 기본 탭 화면으로 복귀
         } else {
-            onBack()  // 기본 화면 -> 홈 화면으로
+            onBack() // 아예 기본 화면이면 홈으로 나가기
         }
     }
 
     val handleClearAction = {
-        if (uiState.isSearchCompleted) {
-            // 지도 화면(검색 완료 상태)에서 X를 누르면 -> 홈 화면으로 완전히 나가기!
-            onBack()
+        if (showMapView) {
+            onBack() // 지도 화면에서 X 누르면 완전히 홈으로 나가기
         } else {
-            // 기본 검색 화면에서 X를 누르면 -> 검색창 텍스트만 지우기!
-            onClear()
+            onClear() // 기본 화면, 결과없음 화면에서 X 누르면 텍스트만 지우기
         }
     }
 
+    // 안드로이드 물리적 뒤로가기 버튼 연동
     BackHandler(enabled = uiState.isSearchCompleted) {
         handleBack()
     }
 
-    // 🌟 프리뷰 환경 감지 및 딜레이 처리
+    // 프리뷰 환경 감지 및 딜레이 처리
     val isPreview = LocalInspectionMode.current
     var isMapReadyToLoad by remember { mutableStateOf(isPreview) }
 
@@ -198,7 +200,7 @@ private fun SearchScreenContent(
         }
     }
 
-    // 🌟 1. 최상위 레이아웃
+    // 최상위 레이아웃
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -210,7 +212,7 @@ private fun SearchScreenContent(
             }
     ) {
 
-        // 🌟 2. 지도 화면 (가장 바닥에 배치)
+        // 🌟 2. 지도 화면 (가장 바닥에 배치, 백그라운드에 깔아둠)
         if (isMapReadyToLoad) {
             MapOverlay(
                 results = uiState.places,
@@ -219,32 +221,44 @@ private fun SearchScreenContent(
             )
         }
 
-        // 🌟 3. 기본 화면 (최근/인기 탭) - 여기에만 하얀 배경을 줍니다!
-        if (!uiState.isSearching && !uiState.isSearchCompleted && uiState.searchError == null) {
+        // 🌟 3. 기본 화면 (최근/인기 탭) OR 검색 결과 없음 화면
+        // 지도를 띄울 상황(showMapView)이 아니면 무조건 탭 화면 기반으로 보여줍니다.
+        if (!showMapView) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.White)
             ) {
+                // 탭은 항상 살려둡니다!
                 SearchTabs(tab = uiState.tab, onTabChange = onTabChange)
+
                 Box(modifier = Modifier.weight(1f)) {
-                    when (uiState.tab) {
-                        SearchTab.RECENT -> {
-                            RecentContent(
-                                recent = uiState.recentQueries,
-                                onClick = { q -> onQueryChange(q); onSearch() },
-                                onRemove = onRemoveRecent,
-                                onEmptySpaceClick = handleBackgroundTap
-                            )
-                        }
-                        SearchTab.HOT -> {
-                            HotReportGridContent(
-                                hotReports = uiState.hotReports,
-                                hotError = uiState.hotError,
-                                isLoading = uiState.isHotLoading,
-                                onClickHotReport = onClickHotReport,
-                                onEmptySpaceClick = handleBackgroundTap
-                            )
+                    if (uiState.isSearching) {
+                        OverlayLoading() // 로딩 중
+                    } else if (uiState.searchError != null) {
+                        OverlayError(message = uiState.searchError, onRetry = onSearch) // 에러 발생
+                    } else if (uiState.isSearchCompleted && uiState.places.isEmpty()) {
+                        OverlayEmpty() // 🌟 결과 없음 (탭 바로 아래에 표시됨)
+                    } else {
+                        // 기본 검색어 목록
+                        when (uiState.tab) {
+                            SearchTab.RECENT -> {
+                                RecentContent(
+                                    recent = uiState.recentQueries,
+                                    onClick = { q -> onQueryChange(q); onSearch() },
+                                    onRemove = onRemoveRecent,
+                                    onEmptySpaceClick = handleBackgroundTap
+                                )
+                            }
+                            SearchTab.HOT -> {
+                                HotReportGridContent(
+                                    hotReports = uiState.hotReports,
+                                    hotError = uiState.hotError,
+                                    isLoading = uiState.isHotLoading,
+                                    onClickHotReport = onClickHotReport,
+                                    onEmptySpaceClick = handleBackgroundTap
+                                )
+                            }
                         }
                     }
                 }
@@ -252,39 +266,28 @@ private fun SearchScreenContent(
             }
         }
 
-        // 4. 로딩 / 에러 / 결과 없음 오버레이 (얘네들도 각자 하얀 배경을 가지고 있어야 함)
-        if (uiState.isSearching) {
-            OverlayLoading()
-        } else if (uiState.searchError != null) {
-            OverlayError(message = uiState.searchError, onRetry = onSearch)
-        } else if (uiState.isSearchCompleted && uiState.places.isEmpty()) {
-            OverlayEmpty()
-        }
-
-        // 🌟 현위치 검색 버튼 & 내 위치 버튼 나란히 배치 (검색바 16dp 위)
+        // 🌟 4. 현위치 검색 버튼 & 내 위치 버튼
+        // 'showMapView(결과가 있는 지도 화면)' 일 때만 나타납니다!
         AnimatedVisibility(
-            visible = uiState.isSearchCompleted,
+            visible = showMapView,
             enter = fadeIn() + slideInVertically(initialOffsetY = { 50 }),
             exit = fadeOut() + slideOutVertically(targetOffsetY = { 50 }),
             modifier = Modifier
-                .align(Alignment.BottomCenter) // 중앙 하단 정렬
-                .padding(bottom = 84.dp)
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 76.dp)
         ) {
-            // 👇 Row 대신 Box를 사용하여 각 버튼의 위치를 개별적으로 지정합니다.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp) // 양옆 여백
+                    .padding(horizontal = 16.dp)
             ) {
-                // 1. 현위치에서 찾기 버튼 (화면 정중앙 고정)
                 SearchInCurrentLocationButton(
-                    modifier = Modifier.align(Alignment.Center), // 🌟 완벽한 중앙 정렬
+                    modifier = Modifier.align(Alignment.Center),
                     onClick = onSearchInCurrentLocation
                 )
 
-                // 2. 기존 LocationButton (오른쪽 끝 고정)
                 LocationButton(
-                    modifier = Modifier.align(Alignment.CenterEnd), // 🌟 오른쪽 정렬
+                    modifier = Modifier.align(Alignment.CenterEnd),
                     onClick = {
                         if (naverMap == null) return@LocationButton
 
@@ -303,7 +306,7 @@ private fun SearchScreenContent(
             }
         }
 
-        // 5. 플로팅 하단 검색바 레이어 (최상단)
+        // 🌟 5. 플로팅 하단 검색바 레이어 (최상단)
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter) // 화면 바닥 중앙에 고정
@@ -313,10 +316,10 @@ private fun SearchScreenContent(
                 query = uiState.query,
                 onQueryChange = onQueryChange,
                 onSearch = onSearch,
-                onClear = handleClearAction,
-                onBack = handleBack,
+                onClear = handleClearAction, // 🌟 X 버튼 로직
+                onBack = handleBack,         // 🌟 뒤로가기 로직
                 isVisible = transitionState,
-                isSearchCompleted = uiState.isSearchCompleted // 🌟 상태 전달
+                isSearchCompleted = showMapView // 🌟 결과가 있는 지도 화면일 때만 흰색+테두리 없음 모드
             )
         }
     }
@@ -712,8 +715,42 @@ private fun OverlayLoading() {
 
 @Composable
 private fun OverlayEmpty() {
-    Box(Modifier.fillMaxSize().background(Color.White), contentAlignment = Alignment.Center) {
-        Text("검색 결과가 없어요.")
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White)
+    ) {
+        // 🌟 상단 절반 (이 영역의 맨 아래에 콘텐츠를 배치합니다)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f), // 화면의 정확히 50%를 차지
+            contentAlignment = Alignment.BottomCenter // 콘텐츠를 이 구역의 맨 밑으로 정렬
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // 1. 아이콘
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_warning_none),
+                    contentDescription = null,
+                    tint = colorResource(id = R.color.grey4)
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 2. 텍스트
+                Text(
+                    text = "검색 결과가 없어요",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = colorResource(id = R.color.grey4)
+                )
+            }
+        }
+
+        // 🌟 하단 절반 (빈 공간으로 두어 위쪽 Box를 밀어올립니다)
+        Spacer(modifier = Modifier.weight(1f))
     }
 }
 
@@ -937,6 +974,23 @@ fun SearchScreenMapPreview() {
                         category = "위험"
                     )
                 )
+            ),
+            onBack = {}, onQueryChange = {}, onSearch = {}, onClear = {}, onTabChange = {}, onRemoveRecent = {}, onSelectPlace = {}, onClickHotReport = {}, onSearchInCurrentLocation = {}
+        )
+    }
+}
+
+// 🌟 3. 추가된 프리뷰: 검색 결과 없음 화면
+@Preview(showBackground = true, name = "3. 검색 결과 없음")
+@Composable
+fun SearchScreenEmptyPreview() {
+    FILLINTheme {
+        SearchScreenContent(
+            uiState = SearchUiState(
+                query = "qqqqqqqqq", // 검색바에 들어갈 텍스트 (예: 없는 단어)
+                isSearchCompleted = true, // 검색 완료 상태
+                isSearching = false, // 로딩 끝남
+                places = emptyList() // 🌟 핵심: 검색 결과(places)를 빈 리스트로 줍니다!
             ),
             onBack = {}, onQueryChange = {}, onSearch = {}, onClear = {}, onTabChange = {}, onRemoveRecent = {}, onSelectPlace = {}, onClickHotReport = {}, onSearchInCurrentLocation = {}
         )
