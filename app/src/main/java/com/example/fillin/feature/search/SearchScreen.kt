@@ -1,5 +1,14 @@
 package com.example.fillin.feature.search
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.animateDp
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -22,10 +31,13 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -87,6 +99,19 @@ private fun SearchScreenContent(
     val isSearchTab = uiState.tab == SearchTab.RECENT
     val hasQuery = uiState.query.isNotBlank()
 
+    val transitionState = remember { MutableTransitionState(false) }
+    LaunchedEffect(Unit) {
+        transitionState.targetState = true
+    }
+    val transition = updateTransition(transitionState, label = "SearchEnter")
+
+    val searchBarOffsetY by transition.animateDp(
+        transitionSpec = { tween(durationMillis = 400) },
+        label = "SearchBarOffset"
+    ) { state ->
+        if (state) 0.dp else (-120).dp
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -142,13 +167,19 @@ private fun SearchScreenContent(
         }
 
         // 3. 하단 검색바 (키보드 대응)
-        BottomSearchBar(
-            query = uiState.query,
-            onQueryChange = onQueryChange,
-            onSearch = onSearch,
-            onClear = onClear,
-            onBack = onBack
-        )
+        Box(
+            modifier = Modifier
+                .offset(y = searchBarOffsetY)
+        ) {
+            BottomSearchBar(
+                query = uiState.query,
+                onQueryChange = onQueryChange,
+                onSearch = onSearch,
+                onClear = onClear,
+                onBack = onBack,
+                isVisible = transitionState
+            )
+        }
     }
 }
 
@@ -330,46 +361,78 @@ private fun BottomSearchBar(
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
     onClear: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    isVisible: MutableTransitionState<Boolean>? = null
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    Row(
+    val transition = updateTransition(
+        transitionState = isVisible ?: MutableTransitionState(true),
+        label = "SearchBarTransition"
+    )
+
+    val buttonOffsetX by transition.animateDp(
+        transitionSpec = { tween(400) },
+        label = "ButtonOffset"
+    ) { state ->
+        if (state) 0.dp else 48.dp
+    }
+
+    val searchBarPadding by transition.animateDp(
+        transitionSpec = { tween(400) },
+        label = "SearchBarPadding"
+    ) { state ->
+        if (state) 60.dp else 0.dp
+    }
+
+    val buttonAlpha by transition.animateFloat(
+        transitionSpec = { tween(400) },
+        label = "ButtonAlpha"
+    ) { state ->
+        if (state) 1f else 0f
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .windowInsetsPadding(WindowInsets.ime)
             .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+        contentAlignment = Alignment.CenterStart
     ) {
-        // 1. 뒤로가기 버튼
-        Surface(
-            onClick = onBack,
-            modifier = Modifier.size(48.dp),
-            shape = CircleShape,
-            color = colorResource(id = R.color.grey1), // 내부 색상 grey1
-            border = BorderStroke(1.dp, colorResource(id = R.color.grey2)), // 테두리 grey2, 두께 1
-            shadowElevation = 2.dp
+        Box(
+            modifier = Modifier
+                .offset(x = buttonOffsetX - 4.dp)
+                .alpha(buttonAlpha)
+                .size(56.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_back),
-                    contentDescription = "뒤로가기",
-                    tint = colorResource(id = R.color.grey3), // 아이콘도 grey3로 통일
-                    modifier = Modifier.size(24.dp)
-                )
+            Surface(
+                onClick = onBack,
+                modifier = Modifier.size(48.dp),
+                shape = CircleShape,
+                color = colorResource(id = R.color.grey1),
+                border = BorderStroke(1.dp, colorResource(id = R.color.grey2)),
+                shadowElevation = 2.dp
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_back),
+                        contentDescription = "뒤로가기",
+                        tint = colorResource(id = R.color.grey3),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
         }
 
-        Spacer(Modifier.width(12.dp))
-
-        // 2. 검색창
         Surface(
             modifier = Modifier
-                .weight(1f)
+                .fillMaxWidth()
+                .padding(start = searchBarPadding)
                 .height(48.dp),
             shape = RoundedCornerShape(24.dp),
-            color = colorResource(id = R.color.grey1), // 내부 색상 grey1
-            border = BorderStroke(1.dp, colorResource(id = R.color.grey2)), // 테두리 grey2, 두께 1
+            color = colorResource(id = R.color.grey1),
+            border = BorderStroke(1.dp, colorResource(id = R.color.grey2)),
             shadowElevation = 2.dp
         ) {
             BasicTextField(
@@ -379,7 +442,6 @@ private fun BottomSearchBar(
                     .fillMaxSize()
                     .padding(horizontal = 20.dp),
                 singleLine = true,
-                // 입력 텍스트 스타일: Bold, 16sp, grey3
                 textStyle = TextStyle(
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp,
@@ -397,7 +459,6 @@ private fun BottomSearchBar(
                     ) {
                         Box(modifier = Modifier.weight(1f)) {
                             if (query.isEmpty()) {
-                                // 힌트 텍스트 스타일: Bold, 16sp, grey3
                                 Text(
                                     text = "내주변 제보 검색",
                                     style = TextStyle(
