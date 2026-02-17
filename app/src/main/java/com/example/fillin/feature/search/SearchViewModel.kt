@@ -61,11 +61,21 @@ class SearchViewModel(
     }
 
     fun setQuery(q: String) {
-        _uiState.update { it.copy(query = q) }
+        _uiState.update {
+            it.copy(
+                query = q,
+                isSearchCompleted = false
+            )
+        }
     }
 
     fun clearQuery() {
-        _uiState.update { it.copy(query = "") }
+        _uiState.update {
+            it.copy(
+                query = "",
+                isSearchCompleted = false
+            )
+        }
     }
 
     fun removeRecent(q: String) {
@@ -102,7 +112,7 @@ class SearchViewModel(
         if (q.isEmpty()) return
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isSearching = true, searchError = null) }
+            _uiState.update { it.copy(isSearching = true, searchError = null, isSearchCompleted = false) }
 
             val latLng = locationProvider.getLatLng()
 
@@ -130,7 +140,11 @@ class SearchViewModel(
                 }
             }.getOrElse { e ->
                 _uiState.update { s ->
-                    s.copy(isSearching = false, searchError = "검색 실패: ${e.message ?: "unknown"}")
+                    s.copy(
+                        isSearching = false,
+                        searchError = "검색 실패: ${e.message ?: "unknown"}",
+                        isSearchCompleted = true
+                    )
                 }
                 return@launch
             }
@@ -143,7 +157,8 @@ class SearchViewModel(
                     isSearching = false,
                     places = results,
                     mode = SearchMode.ResultList,
-                    searchError = null
+                    searchError = null,
+                    isSearchCompleted = true
                 )
             }
         }

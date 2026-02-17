@@ -13,6 +13,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items as lazyItems
@@ -40,8 +41,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
@@ -99,6 +102,9 @@ private fun SearchScreenContent(
     val isSearchTab = uiState.tab == SearchTab.RECENT
     val hasQuery = uiState.query.isNotBlank()
 
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+
     val transitionState = remember { MutableTransitionState(false) }
     LaunchedEffect(Unit) {
         transitionState.targetState = true
@@ -116,57 +122,71 @@ private fun SearchScreenContent(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.White)
-            .statusBarsPadding() // 상태바 영역 확보
+            .statusBarsPadding()
             .navigationBarsPadding()
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = {
+                    keyboardController?.hide()
+                    focusManager.clearFocus()
+
+                    if (hasQuery && !uiState.isSearchCompleted) {
+                        onSearch()
+                    }
+                })
+            }
     ) {
-        // 1. 상단 탭 영역
         SearchTabs(
             tab = uiState.tab,
             onTabChange = onTabChange
         )
 
-        // 2. 중앙 컨텐츠 (스크롤 영역)
+        val handleBackgroundTap = {
+            keyboardController?.hide()
+            focusManager.clearFocus()
+            if (hasQuery && !uiState.isSearchCompleted) {
+                onSearch()
+            }
+        }
+
         Box(modifier = Modifier.weight(1f)) {
-            when (uiState.tab) {
-                SearchTab.RECENT -> {
-                    RecentContent(
-                        recent = uiState.recentQueries,
-                        onClick = { q ->
-                            onQueryChange(q)
-                            onSearch()
-                        },
-                        onRemove = onRemoveRecent
-                    )
-                }
-                SearchTab.HOT -> {
-                    HotReportGridContent(
-                        hotReports = uiState.hotReports,
-                        hotError = uiState.hotError,
-                        isLoading = uiState.isHotLoading,
-                        onClickHotReport = onClickHotReport
-                    )
+            if (!uiState.isSearching && !uiState.isSearchCompleted && uiState.searchError == null) {
+                when (uiState.tab) {
+                    SearchTab.RECENT -> {
+                        RecentContent(
+                            recent = uiState.recentQueries,
+                            onClick = { q ->
+                                onQueryChange(q)
+                                onSearch()
+                            },
+                            onRemove = onRemoveRecent,
+                            onEmptySpaceClick = handleBackgroundTap
+                        )
+                    }
+                    SearchTab.HOT -> {
+                        HotReportGridContent(
+                            hotReports = uiState.hotReports,
+                            hotError = uiState.hotError,
+                            isLoading = uiState.isHotLoading,
+                            onClickHotReport = onClickHotReport,
+                            onEmptySpaceClick = handleBackgroundTap
+                        )
+                    }
                 }
             }
 
-            // 검색 결과 오버레이 (검색 시 화면을 덮음)
-            if (isSearchTab && hasQuery) {
-                if (uiState.isSearching) OverlayLoading()
-
-                uiState.searchError?.let { msg ->
-                    OverlayError(message = msg, onRetry = onSearch)
-                }
-
-                if (!uiState.isSearching && uiState.searchError == null) {
-                    if (uiState.places.isEmpty()) {
-                        OverlayEmpty()
-                    } else {
-                        OverlayResultList(results = uiState.places, onClick = onSelectPlace)
-                    }
+            if (uiState.isSearching) {
+                OverlayLoading()
+            } else if (uiState.searchError != null) {
+                OverlayError(message = uiState.searchError, onRetry = onSearch)
+            } else if (uiState.isSearchCompleted) {
+                if (uiState.places.isEmpty()) {
+                    OverlayEmpty()
+                } else {
+                    MapOverlay(results = uiState.places, onClick = onSelectPlace)
                 }
             }
         }
 
-        // 3. 하단 검색바 (키보드 대응)
         Box(
             modifier = Modifier
                 .offset(y = searchBarOffsetY)
@@ -183,8 +203,6 @@ private fun SearchScreenContent(
     }
 }
 
-/* --- 세부 UI 컴포넌트 --- */
-
 @Composable
 private fun SearchTabs(tab: SearchTab, onTabChange: (SearchTab) -> Unit) {
     val selectedIndex = if (tab == SearchTab.RECENT) 0 else 1
@@ -192,20 +210,18 @@ private fun SearchTabs(tab: SearchTab, onTabChange: (SearchTab) -> Unit) {
     ScrollableTabRow(
         selectedTabIndex = selectedIndex,
         containerColor = Color.White,
-        edgePadding = 0.dp, // 첫 번째 탭의 내장 패딩(16dp) 덕분에 '최근'이 왼쪽에서 16dp 위치에 고정됩니다.
+        edgePadding = 0.dp,
         divider = {},
         indicator = { tabPositions ->
             if (selectedIndex < tabPositions.size) {
-                // 선택된 탭의 위치 정보를 가져옵니다.
                 val currentTab = tabPositions[selectedIndex]
 
-                // 두 번째 탭이 선택되었을 때, 인디케이터도 왼쪽으로 12dp 이동시킵니다.
                 val indicatorOffset = if (selectedIndex == 1) (-12).dp else 0.dp
 
                 Box(
                     modifier = Modifier
                         .tabIndicatorOffset(currentTab)
-                        .offset(x = indicatorOffset) // 인디케이터 위치 보정
+                        .offset(x = indicatorOffset)
                         .fillMaxWidth(),
                     contentAlignment = Alignment.BottomCenter
                 ) {
@@ -234,7 +250,6 @@ private fun SearchTabs(tab: SearchTab, onTabChange: (SearchTab) -> Unit) {
         Tab(
             selected = selectedIndex == 1,
             onClick = { onTabChange(SearchTab.HOT) },
-            // 핵심: 음수 오프셋을 주어 내장 패딩을 뚫고 왼쪽으로 12dp 당깁니다. (32dp - 12dp = 20dp)
             modifier = Modifier.offset(x = (-12).dp),
             text = {
                 Text(
@@ -249,11 +264,26 @@ private fun SearchTabs(tab: SearchTab, onTabChange: (SearchTab) -> Unit) {
 }
 
 @Composable
-private fun RecentContent(recent: List<String>, onClick: (String) -> Unit, onRemove: (String) -> Unit) {
+private fun RecentContent(
+    recent: List<String>,
+    onClick: (String) -> Unit,
+    onRemove: (String) -> Unit,
+    onEmptySpaceClick: () -> Unit
+) {
     if (recent.isEmpty()) {
-        GuideBlock()
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) { detectTapGestures(onTap = { onEmptySpaceClick() }) }
+        ) {
+            GuideBlock()
+        }
     } else {
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) { detectTapGestures(onTap = { onEmptySpaceClick() }) }
+        ) {
             lazyItems(recent) { query ->
                 RecentRow(
                     text = query,
@@ -272,30 +302,25 @@ private fun RecentRow(text: String, onClick: () -> Unit, onRemove: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { onClick() }
-                // 왼쪽은 16dp를 유지하고, 오른쪽은 IconButton의 기본 여백을 고려해 4dp로 설정합니다.
-                // 이렇게 하면 시각적으로 'X' 아이콘이 오른쪽 끝에서 16dp 떨어진 것처럼 보입니다.
                 .padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 1. 아이콘 영역 (위험 요소일 때 겹치기 로직 추가)
-            Box(modifier = Modifier.size(44.dp)) { // 겹치는 아이콘을 위해 크기 확보
+            Box(modifier = Modifier.size(44.dp)) {
                 if (text == "위험 요소") {
-                    // 뒤에 있는 노란색 '경사로' 아이콘
                     Box(
                         modifier = Modifier
                             .size(32.dp)
-                            .align(Alignment.CenterEnd) // 오른쪽 정렬
+                            .align(Alignment.CenterEnd)
                             .clip(CircleShape)
-                            .background(colorResource(R.color.grey2)), // 또는 노란색
+                            .background(colorResource(R.color.grey2)),
                         contentAlignment = Alignment.Center
                     ) {
                         Text("➖", fontSize = 14.sp)
                     }
-                    // 앞에 있는 빨간색 '위험' 아이콘
                     Box(
                         modifier = Modifier
                             .size(32.dp)
-                            .align(Alignment.CenterStart) // 왼쪽 정렬
+                            .align(Alignment.CenterStart)
                             .clip(CircleShape)
                             .background(Color(0xFFFF6B6B)),
                         contentAlignment = Alignment.Center
@@ -303,7 +328,6 @@ private fun RecentRow(text: String, onClick: () -> Unit, onRemove: () -> Unit) {
                         Text("⚠️", fontSize = 16.sp)
                     }
                 } else {
-                    // 일반 단일 아이콘 (경사로, 주변 놀거리 등)
                     val (icon, bgColor) = when {
                         text.contains("경사로") -> "➖" to Color(0xFFFFD93D)
                         else -> "👀" to Color(0xFF2DBE7A)
@@ -323,7 +347,6 @@ private fun RecentRow(text: String, onClick: () -> Unit, onRemove: () -> Unit) {
 
             Spacer(Modifier.width(12.dp))
 
-            // 2. 텍스트 영역
             Text(
                 text = text,
                 style = MaterialTheme.typography.bodyLarge,
@@ -332,21 +355,19 @@ private fun RecentRow(text: String, onClick: () -> Unit, onRemove: () -> Unit) {
                 overflow = TextOverflow.Ellipsis
             )
 
-            // 3. X 버튼 영역 (커스텀 이미지 적용 및 간격 조정)
             IconButton(
                 onClick = onRemove,
-                modifier = Modifier.size(40.dp) // 터치 영역은 확보하고 크기는 조절
+                modifier = Modifier.size(40.dp)
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_close),
                     contentDescription = "삭제",
                     tint = colorResource(id = R.color.grey4),
-                    modifier = Modifier.size(20.dp) // 시각적인 아이콘 크기
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
 
-        // 4. 구분선 (색상: grey2)
         HorizontalDivider(
             modifier = Modifier.padding(horizontal = 16.dp),
             thickness = 0.5.dp,
@@ -365,6 +386,7 @@ private fun BottomSearchBar(
     isVisible: MutableTransitionState<Boolean>? = null
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
 
     val transition = updateTransition(
         transitionState = isVisible ?: MutableTransitionState(true),
@@ -451,6 +473,7 @@ private fun BottomSearchBar(
                 keyboardActions = KeyboardActions(onSearch = {
                     onSearch()
                     keyboardController?.hide()
+                    focusManager.clearFocus()
                 }),
                 decorationBox = { innerTextField ->
                     Row(
@@ -475,11 +498,9 @@ private fun BottomSearchBar(
                                 onClick = onClear,
                                 modifier = Modifier.size(24.dp)
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_close),
-                                    contentDescription = "지우기",
-                                    tint = colorResource(id = R.color.grey3),
-                                    modifier = Modifier.size(18.dp)
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_clear),
+                                    contentDescription = "지우기"
                                 )
                             }
                         }
@@ -490,11 +511,20 @@ private fun BottomSearchBar(
     }
 }
 
-/* --- 기타 컴포넌트 (기존 로직 유지) --- */
-
 @Composable
-private fun HotReportGridContent(hotReports: List<HotReportItem>, hotError: String?, isLoading: Boolean, onClickHotReport: (HotReportItem) -> Unit) {
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+private fun HotReportGridContent(
+    hotReports: List<HotReportItem>,
+    hotError: String?,
+    isLoading: Boolean,
+    onClickHotReport: (HotReportItem) -> Unit,
+    onEmptySpaceClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .pointerInput(Unit) { detectTapGestures(onTap = { onEmptySpaceClick() }) }
+    ) {
         Text("내 주변 인기 장소", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
         if (isLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -559,7 +589,21 @@ private fun GuideBlock() {
     }
 }
 
-/* --- Preview --- */
+@Composable
+private fun MapOverlay(results: List<PlaceItem>, onClick: (PlaceItem) -> Unit) {
+    Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
+        // TODO: 여기에 네이버/카카오/구글 지도 SDK 컴포저블을 넣으시면 됩니다!
+
+        // 일단 화면 전환 테스트를 위한 임시 텍스트입니다.
+        Column(
+            modifier = Modifier.align(Alignment.Center),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("🗺️ 지도가 들어갈 자리입니다.", style = MaterialTheme.typography.titleMedium)
+            Text("${results.size}개의 결과 마커 표시 예정", color = Color.Gray)
+        }
+    }
+}
 
 @Preview(showBackground = true)
 @Composable
