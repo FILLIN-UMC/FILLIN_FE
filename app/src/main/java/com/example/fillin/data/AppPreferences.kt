@@ -28,6 +28,9 @@ class AppPreferences(context: Context) {
     private val _profileImageUriFlow = MutableStateFlow(getProfileImageUri())
     val profileImageUriFlow: StateFlow<String?> = _profileImageUriFlow.asStateFlow()
 
+    private val _currentUserMemberIdFlow = MutableStateFlow(getCurrentUserMemberId())
+    val currentUserMemberIdFlow: StateFlow<Long?> = _currentUserMemberIdFlow.asStateFlow()
+
     init {
         // SharedPreferences 변경 감지
         prefs.registerOnSharedPreferenceChangeListener { _, key ->
@@ -37,6 +40,7 @@ class AppPreferences(context: Context) {
                 KEY_TERMS_ACCEPTED -> _isTermsAcceptedFlow.value = isTermsAccepted()
                 KEY_PERMISSION_GRANTED -> _isPermissionGrantedFlow.value = isPermissionGranted()
                 KEY_PROFILE_IMAGE_URI -> _profileImageUriFlow.value = getProfileImageUri()
+                KEY_CURRENT_USER_MEMBER_ID -> _currentUserMemberIdFlow.value = getCurrentUserMemberId()
             }
         }
     }
@@ -86,6 +90,22 @@ class AppPreferences(context: Context) {
         _profileImageUriFlow.value = uri
     }
 
+    /** 현재 로그인 사용자의 memberId (writerId와 비교해 본인 제보 여부 판단용) */
+    fun getCurrentUserMemberId(): Long? {
+        val value = prefs.getLong(KEY_CURRENT_USER_MEMBER_ID, -1L)
+        return if (value <= 0) null else value
+    }
+
+    fun setCurrentUserMemberId(memberId: Long?) {
+        if (memberId == null || memberId <= 0) {
+            prefs.edit().remove(KEY_CURRENT_USER_MEMBER_ID).apply()
+            _currentUserMemberIdFlow.value = null
+        } else {
+            prefs.edit().putLong(KEY_CURRENT_USER_MEMBER_ID, memberId).apply()
+            _currentUserMemberIdFlow.value = memberId
+        }
+    }
+
     suspend fun clearAll() {
         prefs.edit().clear().apply()
         _isLoggedInFlow.value = false
@@ -93,6 +113,7 @@ class AppPreferences(context: Context) {
         _isPermissionGrantedFlow.value = false
         _nicknameFlow.value = "방태림"
         _profileImageUriFlow.value = null
+        _currentUserMemberIdFlow.value = null
     }
 
     suspend fun setLocationHistoryConsent(value: Boolean) {
@@ -111,5 +132,6 @@ class AppPreferences(context: Context) {
         private const val KEY_LOCATION_HISTORY_CONSENT = "location_history_consent"
         private const val KEY_MARKETING_CONSENT = "marketing_consent"
         private const val KEY_PROFILE_IMAGE_URI = "profile_image_uri"
+        private const val KEY_CURRENT_USER_MEMBER_ID = "current_user_member_id"
     }
 }
