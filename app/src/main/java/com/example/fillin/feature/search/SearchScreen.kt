@@ -85,6 +85,7 @@ import com.naver.maps.map.overlay.Marker
 import com.naver.maps.map.overlay.OverlayImage
 import kotlin.math.min
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.graphics.Brush
 
 @Composable
 fun SearchScreen(
@@ -653,27 +654,24 @@ private fun HotReportGridContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .padding(horizontal = 16.dp)
             .pointerInput(Unit) { detectTapGestures(onTap = { onEmptySpaceClick() }) }
     ) {
-        // 🌟 수정된 부분: 18sp, Bold 적용
         Text(
             text = "내 주변 인기 장소",
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold,
-            color = Color.Black
+            color = Color.Black,
+            modifier = Modifier.padding(vertical = 16.dp)
         )
 
-        Spacer(Modifier.height(16.dp))
-
-        if (isLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        //if (isLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            // 💡 여기에 패딩 적용 (상단 여백 16dp + 하단 검색바 여백)
-            contentPadding = PaddingValues(top = 16.dp, bottom = contentPadding.calculateBottomPadding())
+            horizontalArrangement = Arrangement.spacedBy(10.dp), // 좌우 간격
+            verticalArrangement = Arrangement.spacedBy(24.dp), // 🌟 상하 간격을 넓혀서 제목이 들어갈 공간 확보
+            contentPadding = PaddingValues(top = 0.dp, bottom = contentPadding.calculateBottomPadding())
         ) {
             gridItems(hotReports) { item ->
                 HotReportCard(item, onClick = { onClickHotReport(item) })
@@ -684,14 +682,125 @@ private fun HotReportGridContent(
 
 @Composable
 private fun HotReportCard(item: HotReportItem, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().height(200.dp).clickable { onClick() },
-        shape = RoundedCornerShape(16.dp)
+    // 🌟 디자인을 위해 임시로 정의한 색상입니다. 테마 파일에 있다면 교체하세요.
+    val GreenBadge = Color(0xFF00C795)
+    val YellowBadge = Color(0xFFFFD231)
+
+    // 태그에 따른 뱃지 색상 및 텍스트 설정
+    val (badgeText, badgeColor) = when (item.tag) {
+        "DANGER" -> "불편" to YellowBadge
+        else -> "발견" to GreenBadge
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
     ) {
-        Box {
-            AsyncImage(model = item.imageUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            Text(item.title, modifier = Modifier.align(Alignment.BottomStart).padding(8.dp), color = Color.White, fontWeight = FontWeight.Bold)
+        // 1. 이미지 카드 영역
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f) // 정사각형 비율 (필요시 조절)
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                // 배경 이미지
+                AsyncImage(
+                    model = item.imageUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                // 🌟 텍스트 가독성을 위한 하단 그라데이션 (Scrim)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(100.dp) // 하단 100dp 정도만 어둡게 처리
+                        .align(Alignment.BottomCenter)
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))
+                            )
+                        )
+                )
+
+                // 좌측 상단: 조회수
+                Row(
+                    modifier = Modifier
+                        .padding(10.dp)
+                        .align(Alignment.TopStart),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_eye),
+                        contentDescription = "views",
+                        tint = Color.White
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "5", // 💡 item.viewCount 로 변경 필요
+                        fontSize = 12.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                // 우측 상단: 카테고리 뱃지
+                Surface(
+                    color = badgeColor,
+                    shape = RoundedCornerShape(32.dp),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(10.dp)
+                ) {
+                    Text(
+                        text = badgeText,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp)
+                    )
+                }
+
+                // 좌측 하단: 주소 및 거리
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(12.dp)
+                ) {
+                    Text(
+                        text = item.address,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "가는길 255m", // 💡 "가는길 ${item.distance}m" 로 변경 필요
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Normal
+                    )
+                }
+            }
         }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // 2. 카드 하단 제목 영역
+        Text(
+            text = item.title,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 8.dp)
+        )
     }
 }
 
