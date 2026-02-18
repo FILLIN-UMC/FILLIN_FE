@@ -280,7 +280,6 @@ private fun SearchScreenContent(
                 onClick = { place ->
                     // 🌟 [수정] 마커 클릭 시 selectedPlace 상태 업데이트 -> 오버레이 표시
                     selectedPlace = place
-                    onSelectPlace(place)
                 },
                 onMapReady = { map -> naverMap = map }
             )
