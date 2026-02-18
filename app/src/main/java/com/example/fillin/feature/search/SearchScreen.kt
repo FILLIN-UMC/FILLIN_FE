@@ -233,21 +233,24 @@ private fun SearchScreenContent(
                 SearchTabs(tab = uiState.tab, onTabChange = onTabChange)
 
                 Box(modifier = Modifier.weight(1f)) {
+                    // 💡 검색바 높이만큼 하단에 여백을 줄 값 정의 (약 80dp)
+                    val listContentPadding = PaddingValues(bottom = 80.dp)
+
                     if (uiState.isSearching) {
-                        OverlayLoading() // 로딩 중
+                        OverlayLoading()
                     } else if (uiState.searchError != null) {
-                        OverlayError(message = uiState.searchError, onRetry = onSearch) // 에러 발생
+                        OverlayError(message = uiState.searchError, onRetry = onSearch)
                     } else if (uiState.isSearchCompleted && uiState.places.isEmpty()) {
-                        OverlayEmpty() // 🌟 결과 없음 (탭 바로 아래에 표시됨)
+                        OverlayEmpty()
                     } else {
-                        // 기본 검색어 목록
                         when (uiState.tab) {
                             SearchTab.RECENT -> {
                                 RecentContent(
                                     recent = uiState.recentQueries,
                                     onClick = { q -> onQueryChange(q); onSearch() },
                                     onRemove = onRemoveRecent,
-                                    onEmptySpaceClick = handleBackgroundTap
+                                    onEmptySpaceClick = handleBackgroundTap,
+                                    contentPadding = listContentPadding // 👈 패딩 전달
                                 )
                             }
                             SearchTab.HOT -> {
@@ -256,13 +259,13 @@ private fun SearchScreenContent(
                                     hotError = uiState.hotError,
                                     isLoading = uiState.isHotLoading,
                                     onClickHotReport = onClickHotReport,
-                                    onEmptySpaceClick = handleBackgroundTap
+                                    onEmptySpaceClick = handleBackgroundTap,
+                                    contentPadding = listContentPadding // 👈 패딩 전달
                                 )
                             }
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(72.dp)) // 하단 검색바 여백
             }
         }
 
@@ -390,7 +393,8 @@ private fun RecentContent(
     recent: List<String>,
     onClick: (String) -> Unit,
     onRemove: (String) -> Unit,
-    onEmptySpaceClick: () -> Unit
+    onEmptySpaceClick: () -> Unit,
+    contentPadding: PaddingValues
 ) {
     if (recent.isEmpty()) {
         Box(
@@ -404,7 +408,8 @@ private fun RecentContent(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) { detectTapGestures(onTap = { onEmptySpaceClick() }) }
+                .pointerInput(Unit) { detectTapGestures(onTap = { onEmptySpaceClick() }) },
+            contentPadding = contentPadding // 💡 여기에 패딩 적용
         ) {
             lazyItems(recent) { query ->
                 RecentRow(
@@ -642,7 +647,8 @@ private fun HotReportGridContent(
     hotError: String?,
     isLoading: Boolean,
     onClickHotReport: (HotReportItem) -> Unit,
-    onEmptySpaceClick: () -> Unit
+    onEmptySpaceClick: () -> Unit,
+    contentPadding: PaddingValues
 ) {
     Column(
         modifier = Modifier
@@ -650,15 +656,28 @@ private fun HotReportGridContent(
             .padding(16.dp)
             .pointerInput(Unit) { detectTapGestures(onTap = { onEmptySpaceClick() }) }
     ) {
-        Text("내 주변 인기 장소", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        // 🌟 수정된 부분: 18sp, Bold 적용
+        Text(
+            text = "내 주변 인기 장소",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.Black
+        )
+
         Spacer(Modifier.height(16.dp))
+
         if (isLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            // 💡 여기에 패딩 적용 (상단 여백 16dp + 하단 검색바 여백)
+            contentPadding = PaddingValues(top = 16.dp, bottom = contentPadding.calculateBottomPadding())
         ) {
-            gridItems(hotReports) { item -> HotReportCard(item, onClick = { onClickHotReport(item) }) }
+            gridItems(hotReports) { item ->
+                HotReportCard(item, onClick = { onClickHotReport(item) })
+            }
         }
     }
 }
@@ -993,6 +1012,90 @@ fun SearchScreenEmptyPreview() {
                 places = emptyList() // 🌟 핵심: 검색 결과(places)를 빈 리스트로 줍니다!
             ),
             onBack = {}, onQueryChange = {}, onSearch = {}, onClear = {}, onTabChange = {}, onRemoveRecent = {}, onSelectPlace = {}, onClickHotReport = {}, onSearchInCurrentLocation = {}
+        )
+    }
+}
+
+// 🌟 4. 인기 제보 탭 (Hot) 프리뷰
+@Preview(showBackground = true, name = "4. 인기 제보 탭 (Hot)")
+@Composable
+fun SearchScreenHotPreview() {
+    val sampleHotReports = listOf(
+        HotReportItem(
+            id = "1",
+            title = "성수동 카페거리 입구",
+            imageUrl = "dummy_url",
+            address = "서울시 성동구 성수동",
+            tag = "DANGER" // 👈 태그 추가
+        ),
+        HotReportItem(
+            id = "2",
+            title = "강남역 11번 출구 앞",
+            imageUrl = "dummy_url",
+            address = "서울시 강남구 역삼동",
+            tag = "CAUTION" // 다른 태그 예시
+        ),
+        HotReportItem(
+            id = "3",
+            title = "홍대 버스킹 존",
+            imageUrl = "dummy_url",
+            address = "서울시 마포구 서교동",
+            tag = "DANGER"
+        ),
+        HotReportItem(
+            id = "4",
+            title = "한강공원 나들목",
+            imageUrl = "dummy_url",
+            address = "서울시 광진구 자양동",
+            tag = "CAUTION"
+        ),
+        HotReportItem(
+            id = "5",
+            title = "잠실역 사거리",
+            imageUrl = "dummy_url",
+            address = "서울시 송파구 잠실동",
+            tag = "DANGER"
+        ),
+        HotReportItem(
+            id = "6",
+            title = "이태원 거리",
+            imageUrl = "dummy_url",
+            address = "서울시 용산구 이태원동",
+            tag = "CAUTION"
+        ),
+        HotReportItem(
+            id = "5",
+            title = "잠실역 사거리",
+            imageUrl = "dummy_url",
+            address = "서울시 송파구 잠실동",
+            tag = "DANGER"
+        ),
+        HotReportItem(
+            id = "6",
+            title = "이태원 거리",
+            imageUrl = "dummy_url",
+            address = "서울시 용산구 이태원동",
+            tag = "CAUTION"
+        )
+    )
+
+    FILLINTheme {
+        SearchScreenContent(
+            uiState = SearchUiState(
+                tab = SearchTab.HOT,
+                hotReports = sampleHotReports,
+                isSearchCompleted = false,
+                isSearching = false
+            ),
+            onBack = {},
+            onQueryChange = {},
+            onSearch = {},
+            onClear = {},
+            onTabChange = {},
+            onRemoveRecent = {},
+            onSelectPlace = {},
+            onClickHotReport = {},
+            onSearchInCurrentLocation = {}
         )
     }
 }
