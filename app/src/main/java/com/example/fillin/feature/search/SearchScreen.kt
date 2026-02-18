@@ -9,6 +9,9 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -28,17 +31,17 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.Composable
@@ -52,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -71,27 +75,35 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.fillin.R
+import com.example.fillin.data.AppPreferences
+import com.example.fillin.data.api.TokenManager
+import com.example.fillin.data.model.report.ReportImageDetailData
+import com.example.fillin.data.repository.MemberRepository
+import com.example.fillin.data.repository.ReportRepository
 import com.example.fillin.domain.model.HotReportItem
 import com.example.fillin.domain.model.PlaceItem
-import com.example.fillin.ui.theme.FILLINTheme
-import com.example.fillin.R
+import com.example.fillin.ui.components.ReportCard
+import com.example.fillin.ui.components.ReportCardUi
+import com.example.fillin.ui.components.ValidityStatus
 import com.example.fillin.ui.map.MapContent
 import com.example.fillin.ui.map.PresentLocation
+import com.example.fillin.ui.theme.FILLINTheme
 import com.naver.maps.geometry.LatLng
 import com.naver.maps.map.CameraAnimation
 import com.naver.maps.map.CameraUpdate
 import com.naver.maps.map.NaverMap
 import com.naver.maps.map.overlay.Marker
 import com.naver.maps.map.overlay.OverlayImage
-import kotlin.math.min
-import androidx.activity.compose.BackHandler
+import retrofit2.HttpException
+import kotlin.math.*
 
 @Composable
 fun SearchScreen(
     onBack: () -> Unit,
-    onSelectPlace: (PlaceItem) -> Unit,
+    onSelectPlace: (PlaceItem) -> Unit, // (외부 전달용 - 사용 안하면 무시됨)
     onClickHotReport: (HotReportItem) -> Unit,
-    onSearchInCurrentLocation: () -> Unit = {}, // 현위치에서 찾기 콜백
+    onSearchInCurrentLocation: () -> Unit = {},
     vm: SearchViewModel = run {
         val ctx = LocalContext.current
         viewModel(factory = SearchViewModelFactory(ctx))
@@ -107,8 +119,12 @@ fun SearchScreen(
         onClear = { vm.clearQuery() },
         onTabChange = { vm.switchTab(it) },
         onRemoveRecent = { vm.removeRecent(it) },
+        // 🌟 [수정] 여기서 onSelectPlace를 호출하지 않고 내부 상태만 변경하도록 처리할 수도 있지만
+        // 아래 Content에서 selectedPlace 상태를 관리하므로 여기선 빈 람다 혹은 로깅
         onSelectPlace = onSelectPlace,
-        onClickHotReport = onClickHotReport,
+        onClickHotReport = { item ->
+            vm.onSelectHotReport(item)
+        },
         onSearchInCurrentLocation = onSearchInCurrentLocation
     )
 }
@@ -126,12 +142,61 @@ private fun SearchScreenContent(
     onClickHotReport: (HotReportItem) -> Unit,
     onSearchInCurrentLocation: () -> Unit
 ) {
-    val isSearchTab = uiState.tab == SearchTab.RECENT
+    val context = LocalContext.current
     val hasQuery = uiState.query.isNotBlank()
 
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
 
+    // === 🌟 [추가] 상세 카드 표시를 위한 상태 관리 ===
+    var selectedPlace by remember { mutableStateOf<PlaceItem?>(null) }
+    var reportDetail by remember { mutableStateOf<ReportImageDetailData?>(null) }
+    var isLoadingDetail by remember { mutableStateOf(false) }
+    var showLoginPrompt by remember { mutableStateOf(false) }
+
+    // Repositories & Preferences (상세 조회용)
+    val reportRepository = remember(context) { ReportRepository(context) }
+    val memberRepository = remember(context) { MemberRepository(context) }
+    val appPreferences = remember { AppPreferences(context) }
+    val currentUserMemberId by appPreferences.currentUserMemberIdFlow.collectAsState()
+    val currentUserNickname by appPreferences.nicknameFlow.collectAsState()
+    val currentUserProfileImageUri by appPreferences.profileImageUriFlow.collectAsState()
+
+    // 🌟 [추가] 마커 클릭 시(selectedPlace 변경 시) API 호출
+    LaunchedEffect(selectedPlace) {
+        reportDetail = null
+        val place = selectedPlace ?: return@LaunchedEffect
+        // PlaceItem의 ID가 Long으로 변환 가능해야 백엔드 Report ID임 (HotReport는 가능)
+        val docId = place.id.toLongOrNull()
+
+        if (docId == null) {
+            // 일반 검색 결과(네이버 지도 등)라면 상세 API 조회 스킵
+            return@LaunchedEffect
+        }
+
+        isLoadingDetail = true
+        val result = reportRepository.getReportDetail(docId)
+        isLoadingDetail = false
+
+        result.onSuccess { response ->
+            response.data?.let { data ->
+                reportDetail = data
+            }
+        }.onFailure { e ->
+            val isUnauthorized = (e as? HttpException)?.code() == 401
+            if (isUnauthorized) showLoginPrompt = true
+        }
+    }
+
+    // 🌟 [추가] 로그인 안내 토스트
+    LaunchedEffect(showLoginPrompt) {
+        if (showLoginPrompt) {
+            Toast.makeText(context, "로그인하면 더 자세한 정보를 볼 수 있어요", Toast.LENGTH_SHORT).show()
+            showLoginPrompt = false
+        }
+    }
+
+    // ... 기존 애니메이션/키보드 로직 ...
     val transitionState = remember { MutableTransitionState(false) }
     LaunchedEffect(Unit) {
         transitionState.targetState = true
@@ -153,31 +218,30 @@ private fun SearchScreenContent(
         }
     }
 
-    // 🌟 1. 상태 분기 로직: 검색이 완료되었고, 결과 장소가 있을 때만 '지도 모드'로 간주
     val showMapView = uiState.isSearchCompleted && uiState.places.isNotEmpty()
 
     val handleBack = {
-        if (uiState.isSearchCompleted) {
-            onClear() // 결과가 있든 없든, 검색된 상태면 지우고 기본 탭 화면으로 복귀
+        if (selectedPlace != null) {
+            selectedPlace = null // 카드 닫기
+        } else if (uiState.isSearchCompleted) {
+            onClear() // 지도 -> 리스트 복귀
         } else {
-            onBack() // 아예 기본 화면이면 홈으로 나가기
+            onBack() // 리스트 -> 홈으로 나가기
         }
     }
 
     val handleClearAction = {
         if (showMapView) {
-            onBack() // 지도 화면에서 X 누르면 완전히 홈으로 나가기
+            onBack()
         } else {
-            onClear() // 기본 화면, 결과없음 화면에서 X 누르면 텍스트만 지우기
+            onClear()
         }
     }
 
-    // 안드로이드 물리적 뒤로가기 버튼 연동
-    BackHandler(enabled = uiState.isSearchCompleted) {
+    BackHandler(enabled = uiState.isSearchCompleted || selectedPlace != null) {
         handleBack()
     }
 
-    // 프리뷰 환경 감지 및 딜레이 처리
     val isPreview = LocalInspectionMode.current
     var isMapReadyToLoad by remember { mutableStateOf(isPreview) }
 
@@ -188,7 +252,6 @@ private fun SearchScreenContent(
         }
     }
 
-    val context = LocalContext.current
     var naverMap by remember { mutableStateOf<NaverMap?>(null) }
     val presentLocation = remember { PresentLocation(context) }
 
@@ -200,7 +263,6 @@ private fun SearchScreenContent(
         }
     }
 
-    // 최상위 레이아웃
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -211,43 +273,46 @@ private fun SearchScreenContent(
                 detectTapGestures(onTap = { handleBackgroundTap() })
             }
     ) {
-
-        // 🌟 2. 지도 화면 (가장 바닥에 배치, 백그라운드에 깔아둠)
+        // 1. 지도 화면 (Background)
         if (isMapReadyToLoad) {
             MapOverlay(
                 results = uiState.places,
-                onClick = onSelectPlace,
+                onClick = { place ->
+                    // 🌟 [수정] 마커 클릭 시 selectedPlace 상태 업데이트 -> 오버레이 표시
+                    selectedPlace = place
+                    onSelectPlace(place)
+                },
                 onMapReady = { map -> naverMap = map }
             )
         }
 
-        // 🌟 3. 기본 화면 (최근/인기 탭) OR 검색 결과 없음 화면
-        // 지도를 띄울 상황(showMapView)이 아니면 무조건 탭 화면 기반으로 보여줍니다.
+        // 2. 리스트 화면 (최근 검색 / 인기 제보)
         if (!showMapView) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.White)
             ) {
-                // 탭은 항상 살려둡니다!
                 SearchTabs(tab = uiState.tab, onTabChange = onTabChange)
 
                 Box(modifier = Modifier.weight(1f)) {
+                    val listContentPadding = PaddingValues(bottom = 80.dp)
+
                     if (uiState.isSearching) {
-                        OverlayLoading() // 로딩 중
+                        OverlayLoading()
                     } else if (uiState.searchError != null) {
-                        OverlayError(message = uiState.searchError, onRetry = onSearch) // 에러 발생
+                        OverlayError(message = uiState.searchError, onRetry = onSearch)
                     } else if (uiState.isSearchCompleted && uiState.places.isEmpty()) {
-                        OverlayEmpty() // 🌟 결과 없음 (탭 바로 아래에 표시됨)
+                        OverlayEmpty()
                     } else {
-                        // 기본 검색어 목록
                         when (uiState.tab) {
                             SearchTab.RECENT -> {
                                 RecentContent(
                                     recent = uiState.recentQueries,
                                     onClick = { q -> onQueryChange(q); onSearch() },
                                     onRemove = onRemoveRecent,
-                                    onEmptySpaceClick = handleBackgroundTap
+                                    onEmptySpaceClick = handleBackgroundTap,
+                                    contentPadding = listContentPadding
                                 )
                             }
                             SearchTab.HOT -> {
@@ -256,20 +321,20 @@ private fun SearchScreenContent(
                                     hotError = uiState.hotError,
                                     isLoading = uiState.isHotLoading,
                                     onClickHotReport = onClickHotReport,
-                                    onEmptySpaceClick = handleBackgroundTap
+                                    onEmptySpaceClick = handleBackgroundTap,
+                                    contentPadding = listContentPadding
                                 )
                             }
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(72.dp)) // 하단 검색바 여백
             }
         }
 
-        // 🌟 4. 현위치 검색 버튼 & 내 위치 버튼
-        // 'showMapView(결과가 있는 지도 화면)' 일 때만 나타납니다!
+        // 3. 현위치 검색 버튼 & 내 위치 버튼
+        // (카드가 떠있으면 숨김)
         AnimatedVisibility(
-            visible = showMapView,
+            visible = showMapView && selectedPlace == null,
             enter = fadeIn() + slideInVertically(initialOffsetY = { 50 }),
             exit = fadeOut() + slideOutVertically(targetOffsetY = { 50 }),
             modifier = Modifier
@@ -290,7 +355,6 @@ private fun SearchScreenContent(
                     modifier = Modifier.align(Alignment.CenterEnd),
                     onClick = {
                         if (naverMap == null) return@LocationButton
-
                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
                             naverMap?.let { map -> presentLocation.moveMapToCurrentLocation(map) }
                         } else {
@@ -306,23 +370,186 @@ private fun SearchScreenContent(
             }
         }
 
-        // 🌟 5. 플로팅 하단 검색바 레이어 (최상단)
+        // 4. 검색바 (최상단)
         Box(
             modifier = Modifier
-                .align(Alignment.BottomCenter) // 화면 바닥 중앙에 고정
+                .align(Alignment.BottomCenter)
                 .offset(y = searchBarOffsetY)
         ) {
             BottomSearchBar(
                 query = uiState.query,
                 onQueryChange = onQueryChange,
                 onSearch = onSearch,
-                onClear = handleClearAction, // 🌟 X 버튼 로직
-                onBack = handleBack,         // 🌟 뒤로가기 로직
+                onClear = handleClearAction,
+                onBack = handleBack,
                 isVisible = transitionState,
-                isSearchCompleted = showMapView // 🌟 결과가 있는 지도 화면일 때만 흰색+테두리 없음 모드
+                isSearchCompleted = showMapView
             )
         }
+
+        // 🌟 5. [추가] 제보 상세 카드 오버레이 (HomeScreen 로직 이식)
+        selectedPlace?.let { place ->
+            // UI 모델 변환 (API 데이터가 있으면 사용, 없으면 PlaceItem 기본 정보 사용)
+            val reportCardUi = remember(place, reportDetail, currentUserNickname) {
+                val detail = reportDetail
+                // API 결과가 있고, 현재 선택된 마커 ID와 일치하면 상세 정보 사용
+                if (detail != null && detail.reportId.toString() == place.id) {
+                    convertDetailToReportCardUi(
+                        detail = detail,
+                        fallbackAddress = place.address,
+                        currentUserNickname = currentUserNickname,
+                        isLiked = false // 검색에선 좋아요 상태 연동 복잡하면 일단 false 처리
+                    )
+                } else {
+                    // API 로딩 전/실패 시 PlaceItem 기반 기본 정보 표시
+                    convertPlaceToReportCardUi(place)
+                }
+            }
+
+            // 배경 어둡게 처리 & 클릭 시 닫기
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable { selectedPlace = null }
+            )
+
+            // 카드 UI 표시
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    ReportCard(
+                        report = reportCardUi,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = false) {}, // 카드 내부 클릭 무시
+                        selectedFeedback = null, // 검색에선 피드백 상태 표시 안함 (필요 시 추가 구현)
+                        isLiked = reportCardUi.isLiked,
+                        showLikeButton = false, // 검색화면에서 좋아요/피드백 기능은 일단 비활성화 (필요하면 추가)
+                        onPositiveFeedback = {},
+                        onNegativeFeedback = {},
+                        onLikeToggle = {}
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // 닫기 버튼
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(Color.White)
+                            .clickable { selectedPlace = null },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "닫기",
+                            tint = Color.Black,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                // 로딩 중 표시
+                if (isLoadingDetail) {
+                    CircularProgressIndicator(color = Color.White)
+                }
+            }
+        }
     }
+}
+
+// ... (SearchTabs, RecentContent, BottomSearchBar 등 기존 컴포저블 유지) ...
+
+// 🌟 [추가] 변환 함수들 (HomeScreen 로직 가져옴)
+
+/** PlaceItem(기본 정보) -> ReportCardUi 변환 */
+private fun convertPlaceToReportCardUi(place: PlaceItem): ReportCardUi {
+    // 카테고리 색상/라벨 매핑
+    val (typeLabel, typeColor) = when {
+        place.category.contains("위험") -> "위험" to Color(0xFFFF6060)
+        place.category.contains("불편") -> "불편" to Color(0xFF4595E5)
+        else -> "발견" to Color(0xFF29C488)
+    }
+
+    return ReportCardUi(
+        reportId = place.id.toLongOrNull() ?: 0L,
+        validityStatus = ValidityStatus.VALID,
+        imageRes = R.drawable.ic_report_img, // 기본 이미지
+        imageUrl = null,
+        imageUri = null,
+        views = 0,
+        typeLabel = typeLabel,
+        typeColor = typeColor,
+        userName = "정보 없음",
+        userBadge = "루키",
+        profileImageUrl = null,
+        profileImageUri = null,
+        title = place.name,
+        createdLabel = "",
+        address = place.address,
+        distance = "",
+        okCount = 0,
+        dangerCount = 0,
+        isLiked = false
+    )
+}
+
+/** API 상세 정보 -> ReportCardUi 변환 */
+private fun convertDetailToReportCardUi(
+    detail: ReportImageDetailData,
+    fallbackAddress: String,
+    currentUserNickname: String,
+    isLiked: Boolean
+): ReportCardUi {
+    val validityStatus = when (detail.validType) {
+        "최근에도 확인됐어요" -> ValidityStatus.VALID
+        "제보 의견이 나뉘어요" -> ValidityStatus.INTERMEDIATE
+        "오래된 제보일 수 있어요" -> ValidityStatus.INVALID
+        else -> ValidityStatus.VALID
+    }
+
+    val (typeLabel, typeColor) = when (detail.reportCategory) {
+        "DANGER" -> "위험" to Color(0xFFFF6060)
+        "INCONVENIENCE" -> "불편" to Color(0xFF4595E5)
+        else -> "발견" to Color(0xFF29C488)
+    }
+
+    val userBadge = when (detail.achievement) {
+        "VETERAN" -> "베테랑"
+        "MASTER" -> "마스터"
+        else -> "루키"
+    }
+
+    // 날짜 포맷팅 로직 (간소화)
+    val createdLabel = "최근"
+
+    return ReportCardUi(
+        reportId = detail.reportId ?: 0L,
+        validityStatus = validityStatus,
+        imageRes = R.drawable.ic_report_img,
+        imageUrl = detail.reportImageUrl,
+        imageUri = null,
+        views = detail.viewCount,
+        typeLabel = typeLabel,
+        typeColor = typeColor,
+        userName = detail.nickname ?: "사용자",
+        userBadge = userBadge,
+        profileImageUrl = detail.profileImageUrl,
+        profileImageUri = null,
+        title = detail.title ?: "",
+        createdLabel = createdLabel,
+        address = detail.address ?: fallbackAddress,
+        distance = "", // 거리 계산 로직은 필요시 추가
+        okCount = detail.doneCount,
+        dangerCount = detail.nowCount,
+        isLiked = isLiked
+    )
 }
 
 @Composable
@@ -337,7 +564,6 @@ private fun SearchTabs(tab: SearchTab, onTabChange: (SearchTab) -> Unit) {
         indicator = { tabPositions ->
             if (selectedIndex < tabPositions.size) {
                 val currentTab = tabPositions[selectedIndex]
-
                 val indicatorOffset = if (selectedIndex == 1) (-12).dp else 0.dp
 
                 Box(
@@ -390,7 +616,8 @@ private fun RecentContent(
     recent: List<String>,
     onClick: (String) -> Unit,
     onRemove: (String) -> Unit,
-    onEmptySpaceClick: () -> Unit
+    onEmptySpaceClick: () -> Unit,
+    contentPadding: PaddingValues
 ) {
     if (recent.isEmpty()) {
         Box(
@@ -404,7 +631,8 @@ private fun RecentContent(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) { detectTapGestures(onTap = { onEmptySpaceClick() }) }
+                .pointerInput(Unit) { detectTapGestures(onTap = { onEmptySpaceClick() }) },
+            contentPadding = contentPadding
         ) {
             lazyItems(recent) { query ->
                 RecentRow(
@@ -506,7 +734,7 @@ private fun BottomSearchBar(
     onClear: () -> Unit,
     onBack: () -> Unit,
     isVisible: MutableTransitionState<Boolean>? = null,
-    isSearchCompleted: Boolean = false // 🌟 지도 화면 상태값 추가
+    isSearchCompleted: Boolean = false
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -555,7 +783,6 @@ private fun BottomSearchBar(
                 onClick = onBack,
                 modifier = Modifier.size(48.dp),
                 shape = CircleShape,
-                // 🌟 지도 뷰일 때 흰 배경, 테두리 없음
                 color = if (isSearchCompleted) Color.White else colorResource(id = R.color.grey1),
                 border = if (isSearchCompleted) null else BorderStroke(1.dp, colorResource(id = R.color.grey2)),
                 shadowElevation = 2.dp
@@ -577,7 +804,6 @@ private fun BottomSearchBar(
                 .padding(start = searchBarPadding)
                 .height(48.dp),
             shape = RoundedCornerShape(24.dp),
-            // 🌟 지도 뷰일 때 흰 배경, 테두리 없음
             color = if (isSearchCompleted) Color.White else colorResource(id = R.color.grey1),
             border = if (isSearchCompleted) null else BorderStroke(1.dp, colorResource(id = R.color.grey2)),
             shadowElevation = 2.dp
@@ -642,37 +868,149 @@ private fun HotReportGridContent(
     hotError: String?,
     isLoading: Boolean,
     onClickHotReport: (HotReportItem) -> Unit,
-    onEmptySpaceClick: () -> Unit
+    onEmptySpaceClick: () -> Unit,
+    contentPadding: PaddingValues
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .padding(horizontal = 16.dp)
             .pointerInput(Unit) { detectTapGestures(onTap = { onEmptySpaceClick() }) }
     ) {
-        Text("내 주변 인기 장소", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(16.dp))
-        if (isLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        Text(
+            text = "내 주변 인기 장소",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.Black,
+            modifier = Modifier.padding(vertical = 16.dp)
+        )
+
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+            contentPadding = PaddingValues(top = 0.dp, bottom = contentPadding.calculateBottomPadding())
         ) {
-            gridItems(hotReports) { item -> HotReportCard(item, onClick = { onClickHotReport(item) }) }
+            gridItems(hotReports) { item ->
+                HotReportCard(item, onClick = { onClickHotReport(item) })
+            }
         }
     }
 }
 
 @Composable
 private fun HotReportCard(item: HotReportItem, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().height(200.dp).clickable { onClick() },
-        shape = RoundedCornerShape(16.dp)
+    val GreenBadge = Color(0xFF00C795)
+    val YellowBadge = Color(0xFFFFD231)
+
+    val (badgeText, badgeColor) = when (item.category) {
+        "DANGER" -> "불편" to YellowBadge
+        else -> "발견" to GreenBadge
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
     ) {
-        Box {
-            AsyncImage(model = item.imageUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            Text(item.title, modifier = Modifier.align(Alignment.BottomStart).padding(8.dp), color = Color.White, fontWeight = FontWeight.Bold)
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                AsyncImage(
+                    model = item.imageUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(100.dp)
+                        .align(Alignment.BottomCenter)
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))
+                            )
+                        )
+                )
+
+                Row(
+                    modifier = Modifier
+                        .padding(10.dp)
+                        .align(Alignment.TopStart),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_eye),
+                        contentDescription = "views",
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = item.viewCount.toString(),
+                        fontSize = 12.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                Surface(
+                    color = badgeColor,
+                    shape = RoundedCornerShape(32.dp),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(10.dp)
+                ) {
+                    Text(
+                        text = badgeText,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                    )
+                }
+
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(12.dp)
+                ) {
+                    Text(
+                        text = item.address,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "가는길 ${item.distanceMeters}m",
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Normal
+                    )
+                }
+            }
         }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = item.title,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 8.dp)
+        )
     }
 }
 
@@ -720,17 +1058,15 @@ private fun OverlayEmpty() {
             .fillMaxSize()
             .background(Color.White)
     ) {
-        // 🌟 상단 절반 (이 영역의 맨 아래에 콘텐츠를 배치합니다)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f), // 화면의 정확히 50%를 차지
-            contentAlignment = Alignment.BottomCenter // 콘텐츠를 이 구역의 맨 밑으로 정렬
+                .weight(1f),
+            contentAlignment = Alignment.BottomCenter
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // 1. 아이콘
                 Icon(
                     painter = painterResource(id = R.drawable.ic_warning_none),
                     contentDescription = null,
@@ -739,7 +1075,6 @@ private fun OverlayEmpty() {
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // 2. 텍스트
                 Text(
                     text = "검색 결과가 없어요",
                     fontSize = 20.sp,
@@ -748,8 +1083,6 @@ private fun OverlayEmpty() {
                 )
             }
         }
-
-        // 🌟 하단 절반 (빈 공간으로 두어 위쪽 Box를 밀어올립니다)
         Spacer(modifier = Modifier.weight(1f))
     }
 }
@@ -772,8 +1105,6 @@ private fun MapOverlay(
     val isPreview = LocalInspectionMode.current
     var naverMap by remember { mutableStateOf<NaverMap?>(null) }
     val markers = remember { mutableListOf<Marker>() }
-
-    // 마커 아이콘 캐싱
     val markerIconCache = remember { mutableMapOf<String, OverlayImage>() }
 
     fun createCircularMarkerIcon(resId: Int, sizeDp: Int = 42, backgroundColor: Int = android.graphics.Color.WHITE): OverlayImage {
@@ -899,20 +1230,19 @@ private fun SearchInCurrentLocationButton(
     Surface(
         onClick = onClick,
         modifier = modifier.height(48.dp),
-        shape = RoundedCornerShape(24.dp), // 타원형
+        shape = RoundedCornerShape(24.dp),
         color = Color.White,
         shadowElevation = 0.dp
     ) {
         Box(
-            // 아이콘이 빠진 대신 텍스트 양옆 여백을 20dp로 살짝 넓혀주면 훨씬 안정감 있고 예쁩니다
             modifier = Modifier.padding(horizontal = 20.dp),
-            contentAlignment = Alignment.Center // 완벽한 중앙 정렬
+            contentAlignment = Alignment.Center
         ) {
             Text(
                 text = "현위치에서 찾기",
-                fontSize = 16.sp, // 텍스트 크기 16sp
-                color = colorResource(id = R.color.main), // main 컬러
-                fontWeight = FontWeight.Bold // Bold 처리
+                fontSize = 16.sp,
+                color = colorResource(id = R.color.main),
+                fontWeight = FontWeight.Bold
             )
         }
     }
@@ -940,7 +1270,7 @@ private fun LocationButton(
     }
 }
 
-// 🌟 1. 기존 프리뷰: 검색 전 (최근 검색어 / 인기 탭 화면)
+// 🌟 1. 프리뷰: 검색 전
 @Preview(showBackground = true, name = "1. 검색 전 (기본 화면)")
 @Composable
 fun SearchScreenInitialPreview() {
@@ -954,7 +1284,7 @@ fun SearchScreenInitialPreview() {
     }
 }
 
-// 🌟 2. 추가된 프리뷰: 검색 완료 후 (지도 배경 + 위치 버튼들 + 하단 검색바)
+// 🌟 2. 프리뷰: 검색 완료 후
 @Preview(showBackground = true, name = "2. 검색 후 (지도 화면)")
 @Composable
 fun SearchScreenMapPreview() {
@@ -962,7 +1292,7 @@ fun SearchScreenMapPreview() {
         SearchScreenContent(
             uiState = SearchUiState(
                 query = "홍대입구",
-                isSearchCompleted = true, // 지도 표시 상태
+                isSearchCompleted = true,
                 isSearching = false,
                 places = listOf(
                     PlaceItem(
@@ -980,19 +1310,69 @@ fun SearchScreenMapPreview() {
     }
 }
 
-// 🌟 3. 추가된 프리뷰: 검색 결과 없음 화면
+// 🌟 3. 프리뷰: 검색 결과 없음
 @Preview(showBackground = true, name = "3. 검색 결과 없음")
 @Composable
 fun SearchScreenEmptyPreview() {
     FILLINTheme {
         SearchScreenContent(
             uiState = SearchUiState(
-                query = "qqqqqqqqq", // 검색바에 들어갈 텍스트 (예: 없는 단어)
-                isSearchCompleted = true, // 검색 완료 상태
-                isSearching = false, // 로딩 끝남
-                places = emptyList() // 🌟 핵심: 검색 결과(places)를 빈 리스트로 줍니다!
+                query = "qqqqqqqqq",
+                isSearchCompleted = true,
+                isSearching = false,
+                places = emptyList()
             ),
             onBack = {}, onQueryChange = {}, onSearch = {}, onClear = {}, onTabChange = {}, onRemoveRecent = {}, onSelectPlace = {}, onClickHotReport = {}, onSearchInCurrentLocation = {}
+        )
+    }
+}
+
+// 🌟 4. 프리뷰: 인기 제보 탭 (데이터 모델 변경 반영)
+@Preview(showBackground = true, name = "4. 인기 제보 탭 (Hot)")
+@Composable
+fun SearchScreenHotPreview() {
+    val sampleHotReports = listOf(
+        HotReportItem(
+            id = 1L,
+            title = "성수동 카페거리 입구",
+            imageUrl = "dummy_url",
+            address = "서울시 성동구 성수동",
+            category = "DANGER",
+            latitude = 37.5445,
+            longitude = 127.0559,
+            viewCount = 120,
+            distanceMeters = 250
+        ),
+        HotReportItem(
+            id = 2L,
+            title = "강남역 11번 출구 앞",
+            imageUrl = "dummy_url",
+            address = "서울시 강남구 역삼동",
+            category = "CAUTION",
+            latitude = 37.4980,
+            longitude = 127.0276,
+            viewCount = 850,
+            distanceMeters = 100
+        )
+    )
+
+    FILLINTheme {
+        SearchScreenContent(
+            uiState = SearchUiState(
+                tab = SearchTab.HOT,
+                hotReports = sampleHotReports,
+                isSearchCompleted = false,
+                isSearching = false
+            ),
+            onBack = {},
+            onQueryChange = {},
+            onSearch = {},
+            onClear = {},
+            onTabChange = {},
+            onRemoveRecent = {},
+            onSelectPlace = {},
+            onClickHotReport = {},
+            onSearchInCurrentLocation = {}
         )
     }
 }
