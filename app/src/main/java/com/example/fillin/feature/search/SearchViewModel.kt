@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.fillin.data.local.RecentQueryStore
 import com.example.fillin.data.location.LocationProvider
 import com.example.fillin.data.repository.HotReportRepository
+import com.example.fillin.domain.model.HotReportItem
 import com.example.fillin.domain.model.VoteType
 import com.example.fillin.domain.repository.PlaceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,9 +45,10 @@ class SearchViewModel(
         }
     }
 
-    fun vote(reportId: String, type: VoteType) {
+    fun vote(reportId: Long, type: VoteType) {
         _uiState.update { s ->
             val updated = s.hotReports.map { r ->
+                // 이제 r.id(Long)와 reportId(Long)가 타입이 같아서 오류가 사라집니다.
                 if (r.id != reportId) r else {
                     when (type) {
                         VoteType.STILL_DANGER -> r.copy(stillDangerCount = r.stillDangerCount + 1)
@@ -57,6 +59,7 @@ class SearchViewModel(
             s.copy(hotReports = updated)
         }
 
+        // 💡 Repository 호출 시에도 Long 타입을 넘기도록 수정 필요
         viewModelScope.launch { hotRepo.vote(reportId, type) }
     }
 
@@ -199,6 +202,32 @@ class SearchViewModel(
                     hotError = null
                 )
             }
+        }
+    }
+
+    fun onSelectHotReport(item: HotReportItem) {
+        // 1. API에서 받은 정보로 바로 PlaceItem 생성
+        val mappedPlace = com.example.fillin.domain.model.PlaceItem(
+            id = item.id.toString(), // Long -> String 변환
+            name = item.title,
+            address = item.address,
+            // category "DANGER" -> 마커용 "위험"으로 변환
+            category = if (item.category == "DANGER") "위험" else "발견",
+
+            // 🌟 핵심: 아이템에 있는 좌표를 그대로 사용 (Double -> String)
+            x = item.longitude.toString(),
+            y = item.latitude.toString()
+        )
+
+        // 2. 지도 화면으로 즉시 전환
+        _uiState.update { s ->
+            s.copy(
+                query = item.title,          // 검색창에 제목 표시
+                isSearchCompleted = true,    // 지도 화면 전환 트리거
+                places = listOf(mappedPlace), // 지도에 핀 찍기
+                searchError = null,
+                mode = SearchMode.ResultList
+            )
         }
     }
 }

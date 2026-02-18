@@ -9,6 +9,7 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -28,17 +29,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.Composable
@@ -52,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -71,12 +71,12 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.fillin.R
 import com.example.fillin.domain.model.HotReportItem
 import com.example.fillin.domain.model.PlaceItem
-import com.example.fillin.ui.theme.FILLINTheme
-import com.example.fillin.R
 import com.example.fillin.ui.map.MapContent
 import com.example.fillin.ui.map.PresentLocation
+import com.example.fillin.ui.theme.FILLINTheme
 import com.naver.maps.geometry.LatLng
 import com.naver.maps.map.CameraAnimation
 import com.naver.maps.map.CameraUpdate
@@ -84,15 +84,13 @@ import com.naver.maps.map.NaverMap
 import com.naver.maps.map.overlay.Marker
 import com.naver.maps.map.overlay.OverlayImage
 import kotlin.math.min
-import androidx.activity.compose.BackHandler
-import androidx.compose.ui.graphics.Brush
 
 @Composable
 fun SearchScreen(
     onBack: () -> Unit,
     onSelectPlace: (PlaceItem) -> Unit,
-    onClickHotReport: (HotReportItem) -> Unit,
-    onSearchInCurrentLocation: () -> Unit = {}, // 현위치에서 찾기 콜백
+    onClickHotReport: (HotReportItem) -> Unit, // (외부 네비게이션용 - 필요 없다면 제거 가능)
+    onSearchInCurrentLocation: () -> Unit = {},
     vm: SearchViewModel = run {
         val ctx = LocalContext.current
         viewModel(factory = SearchViewModelFactory(ctx))
@@ -109,7 +107,10 @@ fun SearchScreen(
         onTabChange = { vm.switchTab(it) },
         onRemoveRecent = { vm.removeRecent(it) },
         onSelectPlace = onSelectPlace,
-        onClickHotReport = onClickHotReport,
+        // 🌟 [핵심] 뷰모델의 onSelectHotReport 호출 -> 지도 이동 트리거
+        onClickHotReport = { item ->
+            vm.onSelectHotReport(item)
+        },
         onSearchInCurrentLocation = onSearchInCurrentLocation
     )
 }
@@ -127,7 +128,6 @@ private fun SearchScreenContent(
     onClickHotReport: (HotReportItem) -> Unit,
     onSearchInCurrentLocation: () -> Unit
 ) {
-    val isSearchTab = uiState.tab == SearchTab.RECENT
     val hasQuery = uiState.query.isNotBlank()
 
     val focusManager = LocalFocusManager.current
@@ -154,31 +154,29 @@ private fun SearchScreenContent(
         }
     }
 
-    // 🌟 1. 상태 분기 로직: 검색이 완료되었고, 결과 장소가 있을 때만 '지도 모드'로 간주
+    // 🌟 지도 모드 조건: 검색 완료 + 결과 있음
     val showMapView = uiState.isSearchCompleted && uiState.places.isNotEmpty()
 
     val handleBack = {
         if (uiState.isSearchCompleted) {
-            onClear() // 결과가 있든 없든, 검색된 상태면 지우고 기본 탭 화면으로 복귀
+            onClear() // 지도 -> 리스트 복귀
         } else {
-            onBack() // 아예 기본 화면이면 홈으로 나가기
+            onBack() // 리스트 -> 홈으로 나가기
         }
     }
 
     val handleClearAction = {
         if (showMapView) {
-            onBack() // 지도 화면에서 X 누르면 완전히 홈으로 나가기
+            onBack()
         } else {
-            onClear() // 기본 화면, 결과없음 화면에서 X 누르면 텍스트만 지우기
+            onClear()
         }
     }
 
-    // 안드로이드 물리적 뒤로가기 버튼 연동
     BackHandler(enabled = uiState.isSearchCompleted) {
         handleBack()
     }
 
-    // 프리뷰 환경 감지 및 딜레이 처리
     val isPreview = LocalInspectionMode.current
     var isMapReadyToLoad by remember { mutableStateOf(isPreview) }
 
@@ -201,7 +199,6 @@ private fun SearchScreenContent(
         }
     }
 
-    // 최상위 레이아웃
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -212,8 +209,7 @@ private fun SearchScreenContent(
                 detectTapGestures(onTap = { handleBackgroundTap() })
             }
     ) {
-
-        // 🌟 2. 지도 화면 (가장 바닥에 배치, 백그라운드에 깔아둠)
+        // 1. 지도 화면 (Background)
         if (isMapReadyToLoad) {
             MapOverlay(
                 results = uiState.places,
@@ -222,19 +218,16 @@ private fun SearchScreenContent(
             )
         }
 
-        // 🌟 3. 기본 화면 (최근/인기 탭) OR 검색 결과 없음 화면
-        // 지도를 띄울 상황(showMapView)이 아니면 무조건 탭 화면 기반으로 보여줍니다.
+        // 2. 리스트 화면 (최근 검색 / 인기 제보)
         if (!showMapView) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.White)
             ) {
-                // 탭은 항상 살려둡니다!
                 SearchTabs(tab = uiState.tab, onTabChange = onTabChange)
 
                 Box(modifier = Modifier.weight(1f)) {
-                    // 💡 검색바 높이만큼 하단에 여백을 줄 값 정의 (약 80dp)
                     val listContentPadding = PaddingValues(bottom = 80.dp)
 
                     if (uiState.isSearching) {
@@ -251,7 +244,7 @@ private fun SearchScreenContent(
                                     onClick = { q -> onQueryChange(q); onSearch() },
                                     onRemove = onRemoveRecent,
                                     onEmptySpaceClick = handleBackgroundTap,
-                                    contentPadding = listContentPadding // 👈 패딩 전달
+                                    contentPadding = listContentPadding
                                 )
                             }
                             SearchTab.HOT -> {
@@ -261,7 +254,7 @@ private fun SearchScreenContent(
                                     isLoading = uiState.isHotLoading,
                                     onClickHotReport = onClickHotReport,
                                     onEmptySpaceClick = handleBackgroundTap,
-                                    contentPadding = listContentPadding // 👈 패딩 전달
+                                    contentPadding = listContentPadding
                                 )
                             }
                         }
@@ -270,8 +263,7 @@ private fun SearchScreenContent(
             }
         }
 
-        // 🌟 4. 현위치 검색 버튼 & 내 위치 버튼
-        // 'showMapView(결과가 있는 지도 화면)' 일 때만 나타납니다!
+        // 3. 현위치 검색 버튼 & 내 위치 버튼 (지도 모드일 때만)
         AnimatedVisibility(
             visible = showMapView,
             enter = fadeIn() + slideInVertically(initialOffsetY = { 50 }),
@@ -294,7 +286,6 @@ private fun SearchScreenContent(
                     modifier = Modifier.align(Alignment.CenterEnd),
                     onClick = {
                         if (naverMap == null) return@LocationButton
-
                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
                             naverMap?.let { map -> presentLocation.moveMapToCurrentLocation(map) }
                         } else {
@@ -310,20 +301,20 @@ private fun SearchScreenContent(
             }
         }
 
-        // 🌟 5. 플로팅 하단 검색바 레이어 (최상단)
+        // 4. 검색바 (최상단)
         Box(
             modifier = Modifier
-                .align(Alignment.BottomCenter) // 화면 바닥 중앙에 고정
+                .align(Alignment.BottomCenter)
                 .offset(y = searchBarOffsetY)
         ) {
             BottomSearchBar(
                 query = uiState.query,
                 onQueryChange = onQueryChange,
                 onSearch = onSearch,
-                onClear = handleClearAction, // 🌟 X 버튼 로직
-                onBack = handleBack,         // 🌟 뒤로가기 로직
+                onClear = handleClearAction,
+                onBack = handleBack,
                 isVisible = transitionState,
-                isSearchCompleted = showMapView // 🌟 결과가 있는 지도 화면일 때만 흰색+테두리 없음 모드
+                isSearchCompleted = showMapView
             )
         }
     }
@@ -341,7 +332,6 @@ private fun SearchTabs(tab: SearchTab, onTabChange: (SearchTab) -> Unit) {
         indicator = { tabPositions ->
             if (selectedIndex < tabPositions.size) {
                 val currentTab = tabPositions[selectedIndex]
-
                 val indicatorOffset = if (selectedIndex == 1) (-12).dp else 0.dp
 
                 Box(
@@ -410,7 +400,7 @@ private fun RecentContent(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) { detectTapGestures(onTap = { onEmptySpaceClick() }) },
-            contentPadding = contentPadding // 💡 여기에 패딩 적용
+            contentPadding = contentPadding
         ) {
             lazyItems(recent) { query ->
                 RecentRow(
@@ -512,7 +502,7 @@ private fun BottomSearchBar(
     onClear: () -> Unit,
     onBack: () -> Unit,
     isVisible: MutableTransitionState<Boolean>? = null,
-    isSearchCompleted: Boolean = false // 🌟 지도 화면 상태값 추가
+    isSearchCompleted: Boolean = false
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -561,7 +551,6 @@ private fun BottomSearchBar(
                 onClick = onBack,
                 modifier = Modifier.size(48.dp),
                 shape = CircleShape,
-                // 🌟 지도 뷰일 때 흰 배경, 테두리 없음
                 color = if (isSearchCompleted) Color.White else colorResource(id = R.color.grey1),
                 border = if (isSearchCompleted) null else BorderStroke(1.dp, colorResource(id = R.color.grey2)),
                 shadowElevation = 2.dp
@@ -583,7 +572,6 @@ private fun BottomSearchBar(
                 .padding(start = searchBarPadding)
                 .height(48.dp),
             shape = RoundedCornerShape(24.dp),
-            // 🌟 지도 뷰일 때 흰 배경, 테두리 없음
             color = if (isSearchCompleted) Color.White else colorResource(id = R.color.grey1),
             border = if (isSearchCompleted) null else BorderStroke(1.dp, colorResource(id = R.color.grey2)),
             shadowElevation = 2.dp
@@ -665,12 +653,13 @@ private fun HotReportGridContent(
             modifier = Modifier.padding(vertical = 16.dp)
         )
 
-        //if (isLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        // 🌟 요청하신 대로 로딩 바 제거
+        // if (isLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
-            horizontalArrangement = Arrangement.spacedBy(10.dp), // 좌우 간격
-            verticalArrangement = Arrangement.spacedBy(24.dp), // 🌟 상하 간격을 넓혀서 제목이 들어갈 공간 확보
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
             contentPadding = PaddingValues(top = 0.dp, bottom = contentPadding.calculateBottomPadding())
         ) {
             gridItems(hotReports) { item ->
@@ -682,12 +671,11 @@ private fun HotReportGridContent(
 
 @Composable
 private fun HotReportCard(item: HotReportItem, onClick: () -> Unit) {
-    // 🌟 디자인을 위해 임시로 정의한 색상입니다. 테마 파일에 있다면 교체하세요.
     val GreenBadge = Color(0xFF00C795)
     val YellowBadge = Color(0xFFFFD231)
 
-    // 태그에 따른 뱃지 색상 및 텍스트 설정
-    val (badgeText, badgeColor) = when (item.tag) {
+    // 🌟 tag -> category (API 변경 반영)
+    val (badgeText, badgeColor) = when (item.category) {
         "DANGER" -> "불편" to YellowBadge
         else -> "발견" to GreenBadge
     }
@@ -697,15 +685,13 @@ private fun HotReportCard(item: HotReportItem, onClick: () -> Unit) {
             .fillMaxWidth()
             .clickable { onClick() }
     ) {
-        // 1. 이미지 카드 영역
         Card(
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1f) // 정사각형 비율 (필요시 조절)
+                .aspectRatio(1f)
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                // 배경 이미지
                 AsyncImage(
                     model = item.imageUrl,
                     contentDescription = null,
@@ -713,11 +699,11 @@ private fun HotReportCard(item: HotReportItem, onClick: () -> Unit) {
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // 🌟 텍스트 가독성을 위한 하단 그라데이션 (Scrim)
+                // 하단 그라데이션
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(100.dp) // 하단 100dp 정도만 어둡게 처리
+                        .height(100.dp)
                         .align(Alignment.BottomCenter)
                         .background(
                             brush = Brush.verticalGradient(
@@ -736,18 +722,19 @@ private fun HotReportCard(item: HotReportItem, onClick: () -> Unit) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_eye),
                         contentDescription = "views",
-                        tint = Color.White
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp) // 아이콘 크기
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "5", // 💡 item.viewCount 로 변경 필요
+                        text = item.viewCount.toString(), // 🌟 실제 조회수
                         fontSize = 12.sp,
                         color = Color.White,
                         fontWeight = FontWeight.Medium
                     )
                 }
 
-                // 우측 상단: 카테고리 뱃지
+                // 우측 상단: 뱃지
                 Surface(
                     color = badgeColor,
                     shape = RoundedCornerShape(32.dp),
@@ -760,7 +747,7 @@ private fun HotReportCard(item: HotReportItem, onClick: () -> Unit) {
                         color = Color.White,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                     )
                 }
 
@@ -780,7 +767,7 @@ private fun HotReportCard(item: HotReportItem, onClick: () -> Unit) {
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "가는길 255m", // 💡 "가는길 ${item.distance}m" 로 변경 필요
+                        text = "가는길 ${item.distanceMeters}m", // 🌟 실제 거리
                         color = Color.White.copy(alpha = 0.8f),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Normal
@@ -791,7 +778,7 @@ private fun HotReportCard(item: HotReportItem, onClick: () -> Unit) {
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        // 2. 카드 하단 제목 영역
+        // 제목
         Text(
             text = item.title,
             fontSize = 18.sp,
@@ -848,17 +835,15 @@ private fun OverlayEmpty() {
             .fillMaxSize()
             .background(Color.White)
     ) {
-        // 🌟 상단 절반 (이 영역의 맨 아래에 콘텐츠를 배치합니다)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f), // 화면의 정확히 50%를 차지
-            contentAlignment = Alignment.BottomCenter // 콘텐츠를 이 구역의 맨 밑으로 정렬
+                .weight(1f),
+            contentAlignment = Alignment.BottomCenter
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // 1. 아이콘
                 Icon(
                     painter = painterResource(id = R.drawable.ic_warning_none),
                     contentDescription = null,
@@ -867,7 +852,6 @@ private fun OverlayEmpty() {
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // 2. 텍스트
                 Text(
                     text = "검색 결과가 없어요",
                     fontSize = 20.sp,
@@ -876,8 +860,6 @@ private fun OverlayEmpty() {
                 )
             }
         }
-
-        // 🌟 하단 절반 (빈 공간으로 두어 위쪽 Box를 밀어올립니다)
         Spacer(modifier = Modifier.weight(1f))
     }
 }
@@ -900,8 +882,6 @@ private fun MapOverlay(
     val isPreview = LocalInspectionMode.current
     var naverMap by remember { mutableStateOf<NaverMap?>(null) }
     val markers = remember { mutableListOf<Marker>() }
-
-    // 마커 아이콘 캐싱
     val markerIconCache = remember { mutableMapOf<String, OverlayImage>() }
 
     fun createCircularMarkerIcon(resId: Int, sizeDp: Int = 42, backgroundColor: Int = android.graphics.Color.WHITE): OverlayImage {
@@ -1027,20 +1007,19 @@ private fun SearchInCurrentLocationButton(
     Surface(
         onClick = onClick,
         modifier = modifier.height(48.dp),
-        shape = RoundedCornerShape(24.dp), // 타원형
+        shape = RoundedCornerShape(24.dp),
         color = Color.White,
         shadowElevation = 0.dp
     ) {
         Box(
-            // 아이콘이 빠진 대신 텍스트 양옆 여백을 20dp로 살짝 넓혀주면 훨씬 안정감 있고 예쁩니다
             modifier = Modifier.padding(horizontal = 20.dp),
-            contentAlignment = Alignment.Center // 완벽한 중앙 정렬
+            contentAlignment = Alignment.Center
         ) {
             Text(
                 text = "현위치에서 찾기",
-                fontSize = 16.sp, // 텍스트 크기 16sp
-                color = colorResource(id = R.color.main), // main 컬러
-                fontWeight = FontWeight.Bold // Bold 처리
+                fontSize = 16.sp,
+                color = colorResource(id = R.color.main),
+                fontWeight = FontWeight.Bold
             )
         }
     }
@@ -1068,7 +1047,7 @@ private fun LocationButton(
     }
 }
 
-// 🌟 1. 기존 프리뷰: 검색 전 (최근 검색어 / 인기 탭 화면)
+// 🌟 1. 프리뷰: 검색 전
 @Preview(showBackground = true, name = "1. 검색 전 (기본 화면)")
 @Composable
 fun SearchScreenInitialPreview() {
@@ -1082,7 +1061,7 @@ fun SearchScreenInitialPreview() {
     }
 }
 
-// 🌟 2. 추가된 프리뷰: 검색 완료 후 (지도 배경 + 위치 버튼들 + 하단 검색바)
+// 🌟 2. 프리뷰: 검색 완료 후
 @Preview(showBackground = true, name = "2. 검색 후 (지도 화면)")
 @Composable
 fun SearchScreenMapPreview() {
@@ -1090,7 +1069,7 @@ fun SearchScreenMapPreview() {
         SearchScreenContent(
             uiState = SearchUiState(
                 query = "홍대입구",
-                isSearchCompleted = true, // 지도 표시 상태
+                isSearchCompleted = true,
                 isSearching = false,
                 places = listOf(
                     PlaceItem(
@@ -1108,83 +1087,49 @@ fun SearchScreenMapPreview() {
     }
 }
 
-// 🌟 3. 추가된 프리뷰: 검색 결과 없음 화면
+// 🌟 3. 프리뷰: 검색 결과 없음
 @Preview(showBackground = true, name = "3. 검색 결과 없음")
 @Composable
 fun SearchScreenEmptyPreview() {
     FILLINTheme {
         SearchScreenContent(
             uiState = SearchUiState(
-                query = "qqqqqqqqq", // 검색바에 들어갈 텍스트 (예: 없는 단어)
-                isSearchCompleted = true, // 검색 완료 상태
-                isSearching = false, // 로딩 끝남
-                places = emptyList() // 🌟 핵심: 검색 결과(places)를 빈 리스트로 줍니다!
+                query = "qqqqqqqqq",
+                isSearchCompleted = true,
+                isSearching = false,
+                places = emptyList()
             ),
             onBack = {}, onQueryChange = {}, onSearch = {}, onClear = {}, onTabChange = {}, onRemoveRecent = {}, onSelectPlace = {}, onClickHotReport = {}, onSearchInCurrentLocation = {}
         )
     }
 }
 
-// 🌟 4. 인기 제보 탭 (Hot) 프리뷰
+// 🌟 4. 프리뷰: 인기 제보 탭 (데이터 모델 변경 반영)
 @Preview(showBackground = true, name = "4. 인기 제보 탭 (Hot)")
 @Composable
 fun SearchScreenHotPreview() {
     val sampleHotReports = listOf(
         HotReportItem(
-            id = "1",
+            id = 1L,
             title = "성수동 카페거리 입구",
             imageUrl = "dummy_url",
             address = "서울시 성동구 성수동",
-            tag = "DANGER" // 👈 태그 추가
+            category = "DANGER",
+            latitude = 37.5445,
+            longitude = 127.0559,
+            viewCount = 120,
+            distanceMeters = 250
         ),
         HotReportItem(
-            id = "2",
+            id = 2L,
             title = "강남역 11번 출구 앞",
             imageUrl = "dummy_url",
             address = "서울시 강남구 역삼동",
-            tag = "CAUTION" // 다른 태그 예시
-        ),
-        HotReportItem(
-            id = "3",
-            title = "홍대 버스킹 존",
-            imageUrl = "dummy_url",
-            address = "서울시 마포구 서교동",
-            tag = "DANGER"
-        ),
-        HotReportItem(
-            id = "4",
-            title = "한강공원 나들목",
-            imageUrl = "dummy_url",
-            address = "서울시 광진구 자양동",
-            tag = "CAUTION"
-        ),
-        HotReportItem(
-            id = "5",
-            title = "잠실역 사거리",
-            imageUrl = "dummy_url",
-            address = "서울시 송파구 잠실동",
-            tag = "DANGER"
-        ),
-        HotReportItem(
-            id = "6",
-            title = "이태원 거리",
-            imageUrl = "dummy_url",
-            address = "서울시 용산구 이태원동",
-            tag = "CAUTION"
-        ),
-        HotReportItem(
-            id = "5",
-            title = "잠실역 사거리",
-            imageUrl = "dummy_url",
-            address = "서울시 송파구 잠실동",
-            tag = "DANGER"
-        ),
-        HotReportItem(
-            id = "6",
-            title = "이태원 거리",
-            imageUrl = "dummy_url",
-            address = "서울시 용산구 이태원동",
-            tag = "CAUTION"
+            category = "CAUTION",
+            latitude = 37.4980,
+            longitude = 127.0276,
+            viewCount = 850,
+            distanceMeters = 100
         )
     )
 
