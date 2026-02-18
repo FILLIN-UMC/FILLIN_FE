@@ -9,6 +9,8 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
+import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -38,6 +40,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.Composable
@@ -72,8 +76,16 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.fillin.R
+import com.example.fillin.data.AppPreferences
+import com.example.fillin.data.api.TokenManager
+import com.example.fillin.data.model.report.ReportImageDetailData
+import com.example.fillin.data.repository.MemberRepository
+import com.example.fillin.data.repository.ReportRepository
 import com.example.fillin.domain.model.HotReportItem
 import com.example.fillin.domain.model.PlaceItem
+import com.example.fillin.ui.components.ReportCard
+import com.example.fillin.ui.components.ReportCardUi
+import com.example.fillin.ui.components.ValidityStatus
 import com.example.fillin.ui.map.MapContent
 import com.example.fillin.ui.map.PresentLocation
 import com.example.fillin.ui.theme.FILLINTheme
@@ -83,13 +95,14 @@ import com.naver.maps.map.CameraUpdate
 import com.naver.maps.map.NaverMap
 import com.naver.maps.map.overlay.Marker
 import com.naver.maps.map.overlay.OverlayImage
-import kotlin.math.min
+import retrofit2.HttpException
+import kotlin.math.*
 
 @Composable
 fun SearchScreen(
     onBack: () -> Unit,
-    onSelectPlace: (PlaceItem) -> Unit,
-    onClickHotReport: (HotReportItem) -> Unit, // (외부 네비게이션용 - 필요 없다면 제거 가능)
+    onSelectPlace: (PlaceItem) -> Unit, // (외부 전달용 - 사용 안하면 무시됨)
+    onClickHotReport: (HotReportItem) -> Unit,
     onSearchInCurrentLocation: () -> Unit = {},
     vm: SearchViewModel = run {
         val ctx = LocalContext.current
@@ -106,8 +119,9 @@ fun SearchScreen(
         onClear = { vm.clearQuery() },
         onTabChange = { vm.switchTab(it) },
         onRemoveRecent = { vm.removeRecent(it) },
+        // 🌟 [수정] 여기서 onSelectPlace를 호출하지 않고 내부 상태만 변경하도록 처리할 수도 있지만
+        // 아래 Content에서 selectedPlace 상태를 관리하므로 여기선 빈 람다 혹은 로깅
         onSelectPlace = onSelectPlace,
-        // 🌟 [핵심] 뷰모델의 onSelectHotReport 호출 -> 지도 이동 트리거
         onClickHotReport = { item ->
             vm.onSelectHotReport(item)
         },
@@ -128,11 +142,61 @@ private fun SearchScreenContent(
     onClickHotReport: (HotReportItem) -> Unit,
     onSearchInCurrentLocation: () -> Unit
 ) {
+    val context = LocalContext.current
     val hasQuery = uiState.query.isNotBlank()
 
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
 
+    // === 🌟 [추가] 상세 카드 표시를 위한 상태 관리 ===
+    var selectedPlace by remember { mutableStateOf<PlaceItem?>(null) }
+    var reportDetail by remember { mutableStateOf<ReportImageDetailData?>(null) }
+    var isLoadingDetail by remember { mutableStateOf(false) }
+    var showLoginPrompt by remember { mutableStateOf(false) }
+
+    // Repositories & Preferences (상세 조회용)
+    val reportRepository = remember(context) { ReportRepository(context) }
+    val memberRepository = remember(context) { MemberRepository(context) }
+    val appPreferences = remember { AppPreferences(context) }
+    val currentUserMemberId by appPreferences.currentUserMemberIdFlow.collectAsState()
+    val currentUserNickname by appPreferences.nicknameFlow.collectAsState()
+    val currentUserProfileImageUri by appPreferences.profileImageUriFlow.collectAsState()
+
+    // 🌟 [추가] 마커 클릭 시(selectedPlace 변경 시) API 호출
+    LaunchedEffect(selectedPlace) {
+        reportDetail = null
+        val place = selectedPlace ?: return@LaunchedEffect
+        // PlaceItem의 ID가 Long으로 변환 가능해야 백엔드 Report ID임 (HotReport는 가능)
+        val docId = place.id.toLongOrNull()
+
+        if (docId == null) {
+            // 일반 검색 결과(네이버 지도 등)라면 상세 API 조회 스킵
+            return@LaunchedEffect
+        }
+
+        isLoadingDetail = true
+        val result = reportRepository.getReportDetail(docId)
+        isLoadingDetail = false
+
+        result.onSuccess { response ->
+            response.data?.let { data ->
+                reportDetail = data
+            }
+        }.onFailure { e ->
+            val isUnauthorized = (e as? HttpException)?.code() == 401
+            if (isUnauthorized) showLoginPrompt = true
+        }
+    }
+
+    // 🌟 [추가] 로그인 안내 토스트
+    LaunchedEffect(showLoginPrompt) {
+        if (showLoginPrompt) {
+            Toast.makeText(context, "로그인하면 더 자세한 정보를 볼 수 있어요", Toast.LENGTH_SHORT).show()
+            showLoginPrompt = false
+        }
+    }
+
+    // ... 기존 애니메이션/키보드 로직 ...
     val transitionState = remember { MutableTransitionState(false) }
     LaunchedEffect(Unit) {
         transitionState.targetState = true
@@ -154,11 +218,12 @@ private fun SearchScreenContent(
         }
     }
 
-    // 🌟 지도 모드 조건: 검색 완료 + 결과 있음
     val showMapView = uiState.isSearchCompleted && uiState.places.isNotEmpty()
 
     val handleBack = {
-        if (uiState.isSearchCompleted) {
+        if (selectedPlace != null) {
+            selectedPlace = null // 카드 닫기
+        } else if (uiState.isSearchCompleted) {
             onClear() // 지도 -> 리스트 복귀
         } else {
             onBack() // 리스트 -> 홈으로 나가기
@@ -173,7 +238,7 @@ private fun SearchScreenContent(
         }
     }
 
-    BackHandler(enabled = uiState.isSearchCompleted) {
+    BackHandler(enabled = uiState.isSearchCompleted || selectedPlace != null) {
         handleBack()
     }
 
@@ -187,7 +252,6 @@ private fun SearchScreenContent(
         }
     }
 
-    val context = LocalContext.current
     var naverMap by remember { mutableStateOf<NaverMap?>(null) }
     val presentLocation = remember { PresentLocation(context) }
 
@@ -213,7 +277,11 @@ private fun SearchScreenContent(
         if (isMapReadyToLoad) {
             MapOverlay(
                 results = uiState.places,
-                onClick = onSelectPlace,
+                onClick = { place ->
+                    // 🌟 [수정] 마커 클릭 시 selectedPlace 상태 업데이트 -> 오버레이 표시
+                    selectedPlace = place
+                    onSelectPlace(place)
+                },
                 onMapReady = { map -> naverMap = map }
             )
         }
@@ -263,9 +331,10 @@ private fun SearchScreenContent(
             }
         }
 
-        // 3. 현위치 검색 버튼 & 내 위치 버튼 (지도 모드일 때만)
+        // 3. 현위치 검색 버튼 & 내 위치 버튼
+        // (카드가 떠있으면 숨김)
         AnimatedVisibility(
-            visible = showMapView,
+            visible = showMapView && selectedPlace == null,
             enter = fadeIn() + slideInVertically(initialOffsetY = { 50 }),
             exit = fadeOut() + slideOutVertically(targetOffsetY = { 50 }),
             modifier = Modifier
@@ -317,7 +386,170 @@ private fun SearchScreenContent(
                 isSearchCompleted = showMapView
             )
         }
+
+        // 🌟 5. [추가] 제보 상세 카드 오버레이 (HomeScreen 로직 이식)
+        selectedPlace?.let { place ->
+            // UI 모델 변환 (API 데이터가 있으면 사용, 없으면 PlaceItem 기본 정보 사용)
+            val reportCardUi = remember(place, reportDetail, currentUserNickname) {
+                val detail = reportDetail
+                // API 결과가 있고, 현재 선택된 마커 ID와 일치하면 상세 정보 사용
+                if (detail != null && detail.reportId.toString() == place.id) {
+                    convertDetailToReportCardUi(
+                        detail = detail,
+                        fallbackAddress = place.address,
+                        currentUserNickname = currentUserNickname,
+                        isLiked = false // 검색에선 좋아요 상태 연동 복잡하면 일단 false 처리
+                    )
+                } else {
+                    // API 로딩 전/실패 시 PlaceItem 기반 기본 정보 표시
+                    convertPlaceToReportCardUi(place)
+                }
+            }
+
+            // 배경 어둡게 처리 & 클릭 시 닫기
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable { selectedPlace = null }
+            )
+
+            // 카드 UI 표시
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    ReportCard(
+                        report = reportCardUi,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = false) {}, // 카드 내부 클릭 무시
+                        selectedFeedback = null, // 검색에선 피드백 상태 표시 안함 (필요 시 추가 구현)
+                        isLiked = reportCardUi.isLiked,
+                        showLikeButton = false, // 검색화면에서 좋아요/피드백 기능은 일단 비활성화 (필요하면 추가)
+                        onPositiveFeedback = {},
+                        onNegativeFeedback = {},
+                        onLikeToggle = {}
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // 닫기 버튼
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(Color.White)
+                            .clickable { selectedPlace = null },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "닫기",
+                            tint = Color.Black,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                // 로딩 중 표시
+                if (isLoadingDetail) {
+                    CircularProgressIndicator(color = Color.White)
+                }
+            }
+        }
     }
+}
+
+// ... (SearchTabs, RecentContent, BottomSearchBar 등 기존 컴포저블 유지) ...
+
+// 🌟 [추가] 변환 함수들 (HomeScreen 로직 가져옴)
+
+/** PlaceItem(기본 정보) -> ReportCardUi 변환 */
+private fun convertPlaceToReportCardUi(place: PlaceItem): ReportCardUi {
+    // 카테고리 색상/라벨 매핑
+    val (typeLabel, typeColor) = when {
+        place.category.contains("위험") -> "위험" to Color(0xFFFF6060)
+        place.category.contains("불편") -> "불편" to Color(0xFF4595E5)
+        else -> "발견" to Color(0xFF29C488)
+    }
+
+    return ReportCardUi(
+        reportId = place.id.toLongOrNull() ?: 0L,
+        validityStatus = ValidityStatus.VALID,
+        imageRes = R.drawable.ic_report_img, // 기본 이미지
+        imageUrl = null,
+        imageUri = null,
+        views = 0,
+        typeLabel = typeLabel,
+        typeColor = typeColor,
+        userName = "정보 없음",
+        userBadge = "루키",
+        profileImageUrl = null,
+        profileImageUri = null,
+        title = place.name,
+        createdLabel = "",
+        address = place.address,
+        distance = "",
+        okCount = 0,
+        dangerCount = 0,
+        isLiked = false
+    )
+}
+
+/** API 상세 정보 -> ReportCardUi 변환 */
+private fun convertDetailToReportCardUi(
+    detail: ReportImageDetailData,
+    fallbackAddress: String,
+    currentUserNickname: String,
+    isLiked: Boolean
+): ReportCardUi {
+    val validityStatus = when (detail.validType) {
+        "최근에도 확인됐어요" -> ValidityStatus.VALID
+        "제보 의견이 나뉘어요" -> ValidityStatus.INTERMEDIATE
+        "오래된 제보일 수 있어요" -> ValidityStatus.INVALID
+        else -> ValidityStatus.VALID
+    }
+
+    val (typeLabel, typeColor) = when (detail.reportCategory) {
+        "DANGER" -> "위험" to Color(0xFFFF6060)
+        "INCONVENIENCE" -> "불편" to Color(0xFF4595E5)
+        else -> "발견" to Color(0xFF29C488)
+    }
+
+    val userBadge = when (detail.achievement) {
+        "VETERAN" -> "베테랑"
+        "MASTER" -> "마스터"
+        else -> "루키"
+    }
+
+    // 날짜 포맷팅 로직 (간소화)
+    val createdLabel = "최근"
+
+    return ReportCardUi(
+        reportId = detail.reportId ?: 0L,
+        validityStatus = validityStatus,
+        imageRes = R.drawable.ic_report_img,
+        imageUrl = detail.reportImageUrl,
+        imageUri = null,
+        views = detail.viewCount,
+        typeLabel = typeLabel,
+        typeColor = typeColor,
+        userName = detail.nickname ?: "사용자",
+        userBadge = userBadge,
+        profileImageUrl = detail.profileImageUrl,
+        profileImageUri = null,
+        title = detail.title ?: "",
+        createdLabel = createdLabel,
+        address = detail.address ?: fallbackAddress,
+        distance = "", // 거리 계산 로직은 필요시 추가
+        okCount = detail.doneCount,
+        dangerCount = detail.nowCount,
+        isLiked = isLiked
+    )
 }
 
 @Composable
@@ -653,9 +885,6 @@ private fun HotReportGridContent(
             modifier = Modifier.padding(vertical = 16.dp)
         )
 
-        // 🌟 요청하신 대로 로딩 바 제거
-        // if (isLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -674,7 +903,6 @@ private fun HotReportCard(item: HotReportItem, onClick: () -> Unit) {
     val GreenBadge = Color(0xFF00C795)
     val YellowBadge = Color(0xFFFFD231)
 
-    // 🌟 tag -> category (API 변경 반영)
     val (badgeText, badgeColor) = when (item.category) {
         "DANGER" -> "불편" to YellowBadge
         else -> "발견" to GreenBadge
@@ -699,7 +927,6 @@ private fun HotReportCard(item: HotReportItem, onClick: () -> Unit) {
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // 하단 그라데이션
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -712,7 +939,6 @@ private fun HotReportCard(item: HotReportItem, onClick: () -> Unit) {
                         )
                 )
 
-                // 좌측 상단: 조회수
                 Row(
                     modifier = Modifier
                         .padding(10.dp)
@@ -723,18 +949,17 @@ private fun HotReportCard(item: HotReportItem, onClick: () -> Unit) {
                         painter = painterResource(id = R.drawable.ic_eye),
                         contentDescription = "views",
                         tint = Color.White,
-                        modifier = Modifier.size(14.dp) // 아이콘 크기
+                        modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = item.viewCount.toString(), // 🌟 실제 조회수
+                        text = item.viewCount.toString(),
                         fontSize = 12.sp,
                         color = Color.White,
                         fontWeight = FontWeight.Medium
                     )
                 }
 
-                // 우측 상단: 뱃지
                 Surface(
                     color = badgeColor,
                     shape = RoundedCornerShape(32.dp),
@@ -751,7 +976,6 @@ private fun HotReportCard(item: HotReportItem, onClick: () -> Unit) {
                     )
                 }
 
-                // 좌측 하단: 주소 및 거리
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
@@ -767,7 +991,7 @@ private fun HotReportCard(item: HotReportItem, onClick: () -> Unit) {
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "가는길 ${item.distanceMeters}m", // 🌟 실제 거리
+                        text = "가는길 ${item.distanceMeters}m",
                         color = Color.White.copy(alpha = 0.8f),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Normal
@@ -778,7 +1002,6 @@ private fun HotReportCard(item: HotReportItem, onClick: () -> Unit) {
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        // 제목
         Text(
             text = item.title,
             fontSize = 18.sp,
