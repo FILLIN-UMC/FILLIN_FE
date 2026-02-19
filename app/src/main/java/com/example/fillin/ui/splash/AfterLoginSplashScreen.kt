@@ -3,15 +3,21 @@ package com.example.fillin.ui.splash
 import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import androidx.navigation.compose.rememberNavController
 import com.example.fillin.R
 import com.example.fillin.data.AppPreferences
 import com.example.fillin.navigation.Screen
@@ -34,7 +40,6 @@ fun AfterLoginSplashScreen(
         val isTermsAccepted = appPreferences.isTermsAcceptedFlow.first()
         val isPermissionGranted = appPreferences.isPermissionGrantedFlow.first()
 
-        // 분기 값 확인용 로그 (제일 중요)
         Log.d(
             "LOGIN_FLOW",
             "values -> loggedIn=$isLoggedIn, terms=$isTermsAccepted, permission=$isPermissionGranted"
@@ -55,13 +60,31 @@ fun AfterLoginSplashScreen(
         }
     }
 
+    // UI 부분만 호출
+    AfterLoginSplashContent()
+}
+
+@Composable
+fun AfterLoginSplashContent() {
     FillinBlueGradientBackground {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(modifier = Modifier.height(360.dp))
+
             Image(
-                painter = painterResource(R.drawable.ic_fillin_logo),
-                contentDescription = "FILLIN Logo",
-                modifier = Modifier.size(180.dp)
+                painter = painterResource(R.drawable.img_logo),
+                contentDescription = "FILLIN Logo"
             )
+
+            Spacer(modifier = Modifier.height(474.dp))
         }
     }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun AfterLoginSplashScreenPreview() {
+    AfterLoginSplashContent()
 }
