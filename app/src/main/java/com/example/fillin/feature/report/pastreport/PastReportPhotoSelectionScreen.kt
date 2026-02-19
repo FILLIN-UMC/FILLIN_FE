@@ -10,51 +10,79 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.fillin.R // R 클래스 임포트 확인
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PastReportPhotoSelectionScreen(
     onClose: () -> Unit,
-    onPhotoSelected: (Uri) -> Unit // 사진 선택 완료 시 호출될 콜백
+    onPhotoSelected: (Uri) -> Unit
 ) {
-    // 1. 갤러리 실행을 위한 Launcher 선언
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
         onResult = { uri ->
-            // 사용자가 사진을 선택하면 uri가 돌아옵니다.
             if (uri != null) {
                 onPhotoSelected(uri)
             }
         }
     )
 
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("지난 상황 제보", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onClose) {
-                        Icon(Icons.Default.Close, contentDescription = "닫기")
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.White)
-            )
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White)
+    ) {
+        // 1. 상단 헤더 영역 (PastReportLocationScreen과 디자인 통일)
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Color.White,
+            shadowElevation = 2.dp
+        ) {
+            Row(
+                modifier = Modifier
+                    .statusBarsPadding()
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onClose) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.btn_close),
+                        contentDescription = "닫기",
+                        tint = Color.Unspecified
+                    )
+                }
+                Text(
+                    text = "지난 상황 제보",
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.SemiBold, // SemiBold 적용
+                        fontSize = 20.sp,                // 20sp 적용
+                        letterSpacing = (-0.5).sp        // 자간 조정
+                    )
+                )
+                // 아이콘 크기(24dp) + 패딩 등을 고려하여 균형을 맞추기 위한 Spacer
+                Spacer(Modifier.size(48.dp))
+            }
         }
-    ) { innerPadding ->
+
+        Spacer(modifier = Modifier.height(90.dp))
+
+        // 2. 메인 콘텐츠 영역
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
                 .background(Color.White),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
@@ -64,12 +92,10 @@ fun PastReportPhotoSelectionScreen(
 
             Spacer(modifier = Modifier.height(48.dp))
 
-            // 2. 사진 추가 버튼 클릭 시 Launcher 실행
             Surface(
                 modifier = Modifier
                     .size(220.dp)
                     .clickable {
-                        // 이미지 파일만 필터링하여 갤러리 오픈
                         photoPickerLauncher.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                         )
@@ -81,11 +107,27 @@ fun PastReportPhotoSelectionScreen(
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, Modifier.size(48.dp), tint = Color.Gray)
+                    Icon(
+                        imageVector = Icons.Default.AddPhotoAlternate,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = Color.Gray
+                    )
                     Text("사진 추가+", color = Color.Gray)
                 }
             }
-            Spacer(modifier = Modifier.height(100.dp))
+            Spacer(modifier = Modifier.height(400.dp))
         }
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+fun PastReportPhotoSelectionScreenPreview() {
+    MaterialTheme {
+        PastReportPhotoSelectionScreen(
+            onClose = { },
+            onPhotoSelected = { }
+        )
     }
 }

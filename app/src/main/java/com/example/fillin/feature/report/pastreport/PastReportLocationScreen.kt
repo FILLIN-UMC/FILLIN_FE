@@ -25,7 +25,14 @@ import com.example.fillin.ui.map.MapContent
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode // [추가] 프리뷰 체크용
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
+import com.example.fillin.R
 import com.google.android.gms.location.LocationServices
 import com.naver.maps.geometry.LatLng
 import com.naver.maps.map.CameraUpdate
@@ -36,72 +43,86 @@ fun PastReportLocationScreen(
     onBack: () -> Unit,
     onLocationSet: (address: String, latitude: Double, longitude: Double) -> Unit
 ) {
+    // 프리뷰 모드인지 확인하여 Naver Map SDK 로드 시 발생하는 VerifyError 방지
+    val isPreview = LocalInspectionMode.current
+
     // 실시간 주소 및 좌표 상태 관리
     var centerAddress by remember { mutableStateOf(initialAddress) }
     var centerLat by remember { mutableStateOf(37.5665) }
     var centerLon by remember { mutableStateOf(126.9780) }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
-    // [추가] 현재 위치를 가져오기 위한 FusedLocationProviderClient
+
+    // 현재 위치를 가져오기 위한 FusedLocationProviderClient
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
         // 1. 지도 영역 (배경)
-        MapContent(
-            modifier = Modifier.fillMaxSize(),
-            onMapReady = { naverMap ->
-                // [추가] 지도가 준비되면 즉시 현재 위치를 파악하여 카메라 이동
-                if (ActivityCompat.checkSelfPermission(
-                        context,
-                        Manifest.permission.ACCESS_FINE_LOCATION
-                    ) == PackageManager.PERMISSION_GRANTED
-                ) {
-                    fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
-                        location?.let {
-                            val currentLatLng = LatLng(it.latitude, it.longitude)
-
-                            // 1. 지도 카메라를 현재 위치로 이동
-                            val cameraUpdate = CameraUpdate.scrollTo(currentLatLng)
-                            naverMap.moveCamera(cameraUpdate)
-
-                            // 2. 상태 변수도 현재 위치로 즉시 업데이트 (UI 반응성 향상)
-                            centerLat = it.latitude
-                            centerLon = it.longitude
-                        }
-                    }
-                }
-                // 지도가 멈추면 중앙 좌표의 주소를 가져옴 (역지오코딩)
-                naverMap.addOnCameraIdleListener {
-                    val cameraCenter = naverMap.cameraPosition.target
-                    centerLat = cameraCenter.latitude
-                    centerLon = cameraCenter.longitude
-                    coroutineScope.launch {
-                        try {
-                            val response = RetrofitClient.kakaoApi.getAddressFromCoord(
-                                token = "KakaoAK ${BuildConfig.KAKAO_REST_API_KEY}",
-                                longitude = cameraCenter.longitude,
-                                latitude = cameraCenter.latitude
-                            )
-                            val addressDoc = response.documents.firstOrNull()
-                            centerAddress = addressDoc?.road_address?.address_name
-                                ?: addressDoc?.address?.address_name
-                                        ?: "주소를 찾을 수 없는 지역입니다"
-                        } catch (e: Exception) {
-                            centerAddress = "주소 로드 실패"
-                        }
-                    }
-                }
+        if (isPreview) {
+            // 프리뷰 환경에서는 실제 지도를 로드하지 않고 더미 배경을 표시
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFFE5E7EB)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("지도 영역 (실제 기기에서 작동)", color = Color.Gray)
             }
-        )
+        } else {
+            // 실제 앱 실행 시에만 MapContent 로드
+            MapContent(
+                modifier = Modifier.fillMaxSize(),
+                onMapReady = { naverMap ->
+                    // 지도가 준비되면 즉시 현재 위치를 파악하여 카메라 이동
+                    if (ActivityCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.ACCESS_FINE_LOCATION
+                        ) == PackageManager.PERMISSION_GRANTED
+                    ) {
+                        fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
+                            location?.let {
+                                val currentLatLng = LatLng(it.latitude, it.longitude)
+                                val cameraUpdate = CameraUpdate.scrollTo(currentLatLng)
+                                naverMap.moveCamera(cameraUpdate)
 
-        // 중앙 핀 (유저님이 만든 CenterPin 컴포넌트 사용)
+                                centerLat = it.latitude
+                                centerLon = it.longitude
+                            }
+                        }
+                    }
+                    // 지도가 멈추면 중앙 좌표의 주소를 가져옴 (역지오코딩)
+                    naverMap.addOnCameraIdleListener {
+                        val cameraCenter = naverMap.cameraPosition.target
+                        centerLat = cameraCenter.latitude
+                        centerLon = cameraCenter.longitude
+                        coroutineScope.launch {
+                            try {
+                                val response = RetrofitClient.kakaoApi.getAddressFromCoord(
+                                    token = "KakaoAK ${BuildConfig.KAKAO_REST_API_KEY}",
+                                    longitude = cameraCenter.longitude,
+                                    latitude = cameraCenter.latitude
+                                )
+                                val addressDoc = response.documents.firstOrNull()
+                                centerAddress = addressDoc?.road_address?.address_name
+                                    ?: addressDoc?.address?.address_name
+                                            ?: "주소를 찾을 수 없는 지역입니다"
+                            } catch (e: Exception) {
+                                centerAddress = "주소 로드 실패"
+                            }
+                        }
+                    }
+                }
+            )
+        }
+
+        // 중앙 핀 (MapContent 외부에 위치하므로 프리뷰에서도 보임)
         Box(
             modifier = Modifier.align(Alignment.Center).padding(bottom = 35.dp)
         ) {
-            CenterPin() // 이전에 만든 파란색 '제보' 핀
+            CenterPin()
         }
 
-        // 2. 상단 헤더 영역 [수정사항 반영: X 아이콘 및 타이틀 변경]
+        // 2. 상단 헤더 영역 (수정본)
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = Color.White,
@@ -109,65 +130,142 @@ fun PastReportLocationScreen(
         ) {
             Row(
                 modifier = Modifier
-                    .statusBarsPadding() // 상태바 영역까지 흰색 배경이 채워지도록 설정
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .statusBarsPadding()
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
                     .fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 왼쪽 'X' 닫기 버튼
-                IconButton(
-                    onClick = onBack
-                ) {
-                    Icon(imageVector = Icons.Default.Close, contentDescription = "닫기")
+                IconButton(onClick = onBack) {
+                    // [수정된 부분] 기존 Icons.Default.Close 대신 이미지 리소스 사용
+                    Icon(
+                        painter = painterResource(id = R.drawable.btn_close), // TODO: 실제 이미지 리소스 ID로 변경 (예: R.drawable.img_close_btn)
+                        contentDescription = "닫기",
+                        tint = Color.Unspecified // 이미지 본연의 색상을 유지하기 위해 tint를 끕니다.
+                    )
                 }
-
-                // 중앙 타이틀: 지난 상황 제보
                 Text(
-                    text = "지난 상황 제보", modifier = Modifier.weight(1f), textAlign = TextAlign.Center, fontWeight = FontWeight.Bold
+                    text = "지난 상황 제보",
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.SemiBold, // SemiBold 적용
+                        fontSize = 20.sp,                // 20sp 적용
+                        letterSpacing = (-0.5).sp        // (팁) 글자 크기가 커지면 자간을 살짝 줄여야 더 세련돼 보입니다
+                    )
                 )
+                // 아이콘 크기(24dp) + 패딩 등을 고려하여 균형을 맞추기 위한 Spacer
                 Spacer(Modifier.size(48.dp))
             }
         }
 
-        // 중앙 안내 문구
-        Surface(
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 180.dp),
-            shape = RoundedCornerShape(20.dp),
-            color = Color.White.copy(alpha = 0.9f),
-            shadowElevation = 4.dp
+        // 3. 하단 통합 영역 (안내 문구 + 주소 카드)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter) // 전체 묶음을 화면 하단에 정렬
+                .padding(bottom = 32.dp),      // 화면 최하단과의 여백
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                "지도를 움직여 제보 위치를 설정해주세요.",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-
-        // 하단 주소 표시 및 설정 버튼 영역
-        Surface(
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            shadowElevation = 8.dp
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                OutlinedTextField(
-                    value = centerAddress, // 실시간으로 바뀐 주소가 여기에 표시됩니다!
-                    onValueChange = { centerAddress = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color(0xFF4090E0)) },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Color(0xFFF5F5F5))
+            // [A] 안내 문구
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color.White.copy(alpha = 0.9f),
+                shadowElevation = 4.dp
+            ) {
+                Text(
+                    "지도를 움직여 제보 위치를 설정해주세요.",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontWeight = FontWeight.Medium, // Medium 두께
+                        fontSize = 16.sp,               // 16sp 크기
+                        color = colorResource(R.color.grey5)      // Grey5 색상 (프로젝트 변수가 있다면 대체 가능)
+                    )
                 )
-                Spacer(Modifier.height(16.dp))
-                Button(
-                    onClick = { onLocationSet(centerAddress, centerLat, centerLon) }, // 선택된 주소와 좌표 전달
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4090E0)),
-                    shape = RoundedCornerShape(28.dp)
+            }
+
+            Spacer(modifier = Modifier.height(12.dp)) // 안내 문구와 카드 사이의 간격
+
+            // [B] 하단 주소 카드 영역
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp), // 카드 좌우 여백
+                shape = RoundedCornerShape(28.dp),
+                color = Color.White,
+                shadowElevation = 8.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text("해당 위치로 설정", color = Color.White, fontWeight = FontWeight.Bold)
+                    // 주소 표시바
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        color = Color(0xFFF8FAFF),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LocationOn,
+                                contentDescription = null,
+                                tint = Color(0xFF4090E0),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = centerAddress,
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = TextAlign.Start
+                                ),
+                                color = Color.Black,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(20.dp))
+
+                    // 설정 버튼
+                    Button(
+                        onClick = { onLocationSet(centerAddress, centerLat, centerLon) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(53.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4090E0)),
+                        shape = RoundedCornerShape(30.dp),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
+                    ) {
+                        Text(
+                            "해당 위치로 설정",
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 18.sp
+                        )
+                    }
                 }
             }
         }
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+fun PastReportLocationScreenPreview() {
+    MaterialTheme {
+        PastReportLocationScreen(
+            initialAddress = "서울특별시 중구 세종대로 110",
+            onBack = {},
+            onLocationSet = { _, _, _ -> }
+        )
     }
 }
