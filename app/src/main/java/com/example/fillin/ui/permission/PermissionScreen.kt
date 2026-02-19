@@ -132,6 +132,7 @@ fun PermissionContent(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.White)
+            .navigationBarsPadding()
             .padding(horizontal = 24.dp)
     ) {
         Spacer(Modifier.height(100.dp))
@@ -208,7 +209,10 @@ fun PermissionContent(
         ) {
             Text(
                 text = "확인",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 18.sp
+                ),
                 color = Color.White
             )
         }

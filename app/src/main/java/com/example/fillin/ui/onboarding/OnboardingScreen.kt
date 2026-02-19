@@ -3,12 +3,15 @@ package com.example.fillin.ui.onboarding
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,7 +40,9 @@ import androidx.navigation.NavController
 import com.example.fillin.R
 import com.example.fillin.data.AppPreferences
 import com.example.fillin.navigation.Screen
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 @Composable
 fun OnboardingScreen(
@@ -108,6 +113,11 @@ fun OnboardingContent(
     val lightGray = Color(0xFFBDBDBD)
     val chevronGray = Color(0xFF9E9E9E)
 
+    val isNothingChecked = !agreeService && !agreeLocationHistory && !agreeMarketing
+
+    val scope = rememberCoroutineScope()
+    var isAnimating by remember { mutableStateOf(false) }
+
     BackHandler(enabled = currentStep > 0) {
         onStepChange(0)
     }
@@ -116,6 +126,7 @@ fun OnboardingContent(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.White)
+            .navigationBarsPadding()
             .padding(horizontal = 24.dp)
     ) {
         Spacer(Modifier.height(100.dp))
@@ -245,10 +256,33 @@ fun OnboardingContent(
 
         Button(
             onClick = {
-                if (currentStep == 0) onStepChange(1)
-                else onComplete(nickname, email, agreeService, agreeLocationHistory, agreeMarketing)
+                if (currentStep == 0) {
+                    if (isNothingChecked && !isAnimating) {
+                        // ✅ '전체 동의하기' 스르륵 로직
+                        scope.launch {
+                            isAnimating = true
+
+                            agreeService = true
+                            delay(300L) // 0.2초 간격
+
+                            agreeLocationHistory = true
+                            delay(300L)
+
+                            agreeMarketing = true
+                            delay(300L) // 모든 체크가 끝난 걸 보여주기 위해 조금 더 대기
+
+                            onStepChange(1)
+                            isAnimating = false
+                        }
+                    } else if (agreeService && !isAnimating) {
+                        onStepChange(1)
+                    }
+                } else {
+                    onComplete(nickname, email, agreeService, agreeLocationHistory, agreeMarketing)
+                }
             },
-            enabled = !isLoading && (if (currentStep == 0) agreeService else nickname.isNotBlank()),
+            // ✅ 0단계: 아무것도 안 눌렀을 때(전체동의용) 또는 필수(agreeService)가 눌렸을 때 활성화
+            enabled = !isLoading && !isAnimating && (if (currentStep == 0) isNothingChecked || agreeService else nickname.isNotBlank()),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(53.dp),
@@ -261,11 +295,18 @@ fun OnboardingContent(
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
             } else {
+                // ✅ 문구 분기 로직
+                val buttonText = when {
+                    currentStep == 0 && isNothingChecked -> "전체 동의하기"
+                    currentStep == 0 -> "다음"
+                    else -> "완료"
+                }
+
                 Text(
-                    text = if (currentStep == 0) "다음" else "완료",
+                    text = buttonText,
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 20.sp,
+                        fontSize = 18.sp,
                     ),
                     color = Color.White
                 )
@@ -286,6 +327,14 @@ private fun OnboardingTermsRow(
     lightGray: Color,
     chevronGray: Color
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+
+    val animatedBgColor by animateColorAsState(
+        targetValue = if (checked) primaryBlue else Color.White,
+        animationSpec = tween(durationMillis = 500),
+        label = "bgColor"
+    )
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -296,9 +345,12 @@ private fun OnboardingTermsRow(
             modifier = Modifier
                 .size(34.dp)
                 .clip(CircleShape)
-                .clickable { onToggle() },
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null
+                ) { onToggle() },
             shape = CircleShape,
-            color = if (checked) primaryBlue else Color.Transparent,
+            color = animatedBgColor,
             border = androidx.compose.foundation.BorderStroke(2.dp, if (checked) primaryBlue else lightGray)
         ) {
             Box(contentAlignment = Alignment.Center) {
