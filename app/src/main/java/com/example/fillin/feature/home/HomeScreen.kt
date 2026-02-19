@@ -1472,14 +1472,14 @@ fun HomeScreen(
     ) { permissions ->
         if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
             naverMap?.let { map ->
-                val locationPinIcon = createLocationPinIcon(48)
-                presentLocation.setupLocationOverlay(map, locationPinIcon)
+//                val locationPinIcon = createLocationPinIcon(48)
+                presentLocation.setupLocationOverlay(map)
                 presentLocation.moveMapToCurrentLocation(map)
-                presentLocation.startLocationUpdates(map, locationPinIcon)
+                presentLocation.startLocationUpdates(map)
             }
         }
     }
-    
+
     // 앱 시작 시 사용자 위치를 중심에 표시 및 실시간 위치 업데이트 시작
     LaunchedEffect(naverMap) {
         naverMap?.let { map ->
@@ -1488,10 +1488,21 @@ fun HomeScreen(
                     Manifest.permission.ACCESS_FINE_LOCATION
                 ) == PackageManager.PERMISSION_GRANTED
             ) {
-                val locationPinIcon = createLocationPinIcon(48)
-                presentLocation.setupLocationOverlay(map, locationPinIcon)
+//                val locationPinIcon = createLocationPinIcon(48)
+                presentLocation.setupLocationOverlay(map)
+
+                // 📍 [추가된 부분] 권한이 이미 있다면 내 위치로 즉시 카메라를 이동시킵니다!
                 presentLocation.moveMapToCurrentLocation(map)
-                presentLocation.startLocationUpdates(map, locationPinIcon)
+
+                presentLocation.startLocationUpdates(map)
+            } else {
+                // 📍 [선택 사항] 만약 처음에 위치 권한이 없다면, 앱 시작하자마자 권한을 묻도록 할 수 있습니다.
+                locationPermissionLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
+                )
             }
         }
     }
@@ -1507,6 +1518,7 @@ fun HomeScreen(
         // 지도
         MapContent(
             modifier = Modifier.fillMaxSize(),
+            viewModel = reportViewModel,
             onMapReady = { map ->
                 naverMap = map
                 // 초기 줌 레벨 설정
@@ -1537,9 +1549,9 @@ fun HomeScreen(
                         Manifest.permission.ACCESS_FINE_LOCATION
                     ) == PackageManager.PERMISSION_GRANTED
                 ) {
-                    val locationPinIcon = createLocationPinIcon(48)
-                    presentLocation.setupLocationOverlay(map, locationPinIcon)
-                    presentLocation.startLocationUpdates(map, locationPinIcon)
+//                    val locationPinIcon = createLocationPinIcon(48)
+                    presentLocation.setupLocationOverlay(map)
+                    presentLocation.startLocationUpdates(map)
                 }
             }
         )

@@ -14,7 +14,7 @@ import retrofit2.http.Path
 interface MemberApiService {
 
     @POST("api/members/fcm-token")
-    suspend fun registerFcmToken(@Body request: FcmTokenRequest): ApiResponse
+    suspend fun registerFcmToken(@Body request: FcmTokenRequest): ApiResponse<Unit>
 
     @GET("api/members/{memberId}")
     suspend fun getMemberProfile(@Path("memberId") memberId: Long): MemberProfileResponse

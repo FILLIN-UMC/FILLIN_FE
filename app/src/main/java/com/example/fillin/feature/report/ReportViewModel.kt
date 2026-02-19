@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.fillin.data.db.UploadedReportResult
+import com.example.fillin.data.model.report.MapMarkerResponse
 import com.example.fillin.data.repository.ReportRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -49,6 +50,9 @@ class ReportViewModel(private val repository: ReportRepository) : ViewModel() {
         private set
     /** 방금 올린 제보 스냅샷 (API 병합 후 목록에 없을 때 재추가용) */
     var lastUploadedReportSnapshot by mutableStateOf<LastUploadedSnapshot?>(null)
+        private set
+
+    var mapMarkers by mutableStateOf<List<MapMarkerResponse>>(emptyList())
         private set
 
     /** 업로드 성공 시 HomeScreen에서 호출. 5초 가드 + 병합 시 보존용 스냅샷 설정 */
@@ -197,5 +201,43 @@ class ReportViewModel(private val repository: ReportRepository) : ViewModel() {
         uploadStatus = null
         uploadErrorMessage = null
         lastUploadedReport = null
+    }
+
+    fun fetchMapMarkers(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double) {
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastRequestTime < 1000) return
+        lastRequestTime = currentTime
+
+        viewModelScope.launch {
+            Log.d("ReportViewModel", "마커 요청 범위: $minLat, $maxLat, $minLon, $maxLon")
+            val markers = repository.getMapMarkers(minLat, maxLat, minLon, maxLon)
+            if (markers != null) {
+                Log.d("ReportViewModel", "서버 응답 마커 개수: ${markers.size}")
+                markers.forEach { marker ->
+                    Log.d("ReportViewModel", "마커 정보 -> ID: ${marker.id}, 카테고리: ${marker.category}, 좌표: ${marker.latitude}, ${marker.longitude}")
+                }
+                // [업로드 가드 연동] 서버 데이터와 내가 방금 올린 스냅샷을 병합
+                val finalMarkers = lastUploadedReportSnapshot?.let { snapshot ->
+                    // 서버 데이터에 아직 내 제보가 없다면 스냅샷 추가
+                    if (markers.none { it.id == snapshot.id }) {
+                        markers + MapMarkerResponse(
+                            id = snapshot.id,
+                            latitude = snapshot.latitude,
+                            longitude = snapshot.longitude,
+                            category = snapshot.category,
+                            imageUrl = null // 스냅샷이므로 URL은 아직 없을 수 있음
+                        )
+                    } else markers
+                } ?: markers
+
+                mapMarkers = finalMarkers
+            }
+        }
+    }
+
+    private var lastRequestTime = 0L
+
+    fun clearMarkers() {
+        mapMarkers = emptyList()
     }
 }
