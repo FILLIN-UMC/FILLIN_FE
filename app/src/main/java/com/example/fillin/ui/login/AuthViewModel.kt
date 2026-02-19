@@ -73,6 +73,9 @@ class AuthViewModel(
                         _navEvents.send(AuthNavEvent.GoOnboarding)
                     } else {
                         appPreferences.setLoggedIn(true)
+                        appPreferences.setTermsAccepted(true)
+                        appPreferences.setPermissionGranted(true)
+
                         routeAfterAuth()
                     }
                 },
@@ -125,6 +128,9 @@ class AuthViewModel(
                             _navEvents.send(AuthNavEvent.GoOnboarding)
                         } else {
                             appPreferences.setLoggedIn(true)
+                            appPreferences.setTermsAccepted(true)
+                            appPreferences.setPermissionGranted(true)
+
                             routeAfterAuth()
                         }
                     },
