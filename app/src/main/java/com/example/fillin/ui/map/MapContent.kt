@@ -11,7 +11,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import com.example.fillin.R // 리소스 아이콘 사용을 위해 필요
+import com.example.fillin.R
 import com.example.fillin.feature.report.ReportViewModel
 import com.naver.maps.geometry.LatLng
 import com.naver.maps.map.MapView
@@ -28,38 +28,40 @@ fun MapContent(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // NaverMap 인스턴스를 보관할 상태
     var naverMapInstance by remember { mutableStateOf<NaverMap?>(null) }
-    // 지도에 표시 중인 마커 객체들을 관리할 리스트 (메모리 누수 방지 및 갱신용)
     val activeMarkers = remember { mutableListOf<Marker>() }
 
     val mapView = remember {
         MapView(context).apply {
+            id = View.generateViewId()
             getMapAsync { naverMap ->
                 naverMapInstance = naverMap
+                val presentLocation = PresentLocation(context)
 
-                // viewModel이 전달되었을 때만 카메라 이동 감지 로직 작동
+                presentLocation.moveMapToCurrentLocation(naverMap)
+
                 naverMap.addOnCameraIdleListener {
-                    viewModel?.let { vm ->
-                        val bounds = naverMap.contentBounds
-                        vm.fetchMapMarkers(
-                            minLat = bounds.southWest.latitude,
-                            maxLat = bounds.northEast.latitude,
-                            minLon = bounds.southWest.longitude,
-                            maxLon = bounds.northEast.longitude
-                        )
+                    val pos = naverMap.cameraPosition.target
+
+                    val isCityHall = Math.abs(pos.latitude - 37.5666) < 0.001 &&
+                            Math.abs(pos.longitude - 126.9784) < 0.001
+
+                    if (isCityHall) {
+                        Log.d("MapContent", "기본 위치(시청) 조회 건너뜁니다.")
+                    } else {
+                        Log.d("MapContent", "카메라 정지: 현재 영역 데이터 조회")
+                        fetchMarkersInView(naverMap, viewModel)
                     }
                 }
+
                 onMapReady(naverMap)
             }
         }
     }
 
-    // [기능 2] ViewModel의 mapMarkers 상태가 변할 때마다 마커를 새로 그림
     viewModel?.let { vm ->
         LaunchedEffect(vm.mapMarkers) {
             val map = naverMapInstance ?: return@LaunchedEffect
-            Log.d("MapContent", "지도 마커 갱신 시작. 데이터 개수: ${vm.mapMarkers.size}")
             activeMarkers.forEach { it.map = null }
             activeMarkers.clear()
 
@@ -77,11 +79,9 @@ fun MapContent(
                 }
                 activeMarkers.add(marker)
             }
-            Log.d("MapContent", "지도 마커 렌더링 완료. 현재 마커 객체 수: ${activeMarkers.size}")
         }
     }
 
-    // 생명주기 연결 코드 (기존과 동일)
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -102,4 +102,16 @@ fun MapContent(
     }
 
     AndroidView(factory = { mapView }, modifier = modifier.fillMaxSize())
+}
+
+private fun fetchMarkersInView(naverMap: NaverMap, viewModel: ReportViewModel?) {
+    viewModel?.let { vm ->
+        val bounds = naverMap.contentBounds //
+        vm.fetchMapMarkers(
+            minLat = bounds.southWest.latitude,
+            maxLat = bounds.northEast.latitude,
+            minLon = bounds.southWest.longitude,
+            maxLon = bounds.northEast.longitude
+        )
+    }
 }
