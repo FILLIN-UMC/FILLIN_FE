@@ -42,5 +42,5 @@ interface UserApiService {
     suspend fun reissueToken(@Header("X-Refresh-Token") refreshToken: String): LoginResponse
 
     @PATCH("api/auth/logout")
-    suspend fun logout(@Header("X-Refresh-Token") refreshToken: String): ApiResponse
+    suspend fun logout(@Header("X-Refresh-Token") refreshToken: String): ApiResponse<Unit>
 }

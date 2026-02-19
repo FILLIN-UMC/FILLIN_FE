@@ -1,5 +1,7 @@
 package com.example.fillin.data.api
 
+import com.example.fillin.data.model.auth.ApiResponse
+import com.example.fillin.data.model.report.MapMarkerResponse
 import com.example.fillin.data.model.report.PopularReportListResponse
 import com.example.fillin.data.model.report.ReportAnalyzeResponse
 import com.example.fillin.data.model.report.ReportCreateResponse
@@ -56,4 +58,12 @@ interface ReportApiService {
     suspend fun processReportImage(
         @Part image: MultipartBody.Part
     ): ReportImageProcessResponse
+
+    @GET("api/reports/map")
+    suspend fun getMapMarkers(
+        @Query("minLatitude") minLat: Double,
+        @Query("maxLatitude") maxLat: Double,
+        @Query("minLongitude") minLon: Double,
+        @Query("maxLongitude") maxLon: Double
+    ): ApiResponse<List<MapMarkerResponse>>
 }

@@ -19,5 +19,5 @@ interface AlarmApiService {
     ): AlarmListResponse
 
     @PATCH("api/alarm/{alarmId}/read")
-    suspend fun markAlarmAsRead(@Path("alarmId") alarmId: Long): ApiResponse
+    suspend fun markAlarmAsRead(@Path("alarmId") alarmId: Long): ApiResponse<Unit>
 }

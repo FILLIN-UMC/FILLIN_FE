@@ -11,6 +11,7 @@ import com.example.fillin.data.api.ReportApiService
 import com.example.fillin.data.api.RetrofitClient
 import com.example.fillin.data.api.TokenManager
 import com.example.fillin.data.db.UploadedReportResult
+import com.example.fillin.data.model.report.MapMarkerResponse
 import com.example.fillin.data.model.report.PopularReportListResponse
 import com.example.fillin.data.model.report.ReportApiResponse
 import com.example.fillin.data.model.report.ReportImageDetailResponse
@@ -248,5 +249,18 @@ class ReportRepository(private val context: Context) {
 
     suspend fun likeToggle(reportId: Long): Result<ReportApiResponse> = runCatching {
         api.likeToggle(reportId)
+    }
+
+    suspend fun getMapMarkers(
+        minLat: Double, maxLat: Double,
+        minLon: Double, maxLon: Double
+    ): List<MapMarkerResponse>? = withContext(Dispatchers.IO) {
+        try {
+            val response = api.getMapMarkers(minLat, maxLat, minLon, maxLon)
+            response.data // 👈 ApiResponse 객체에서 실제 리스트인 data만 추출
+        } catch (e: Exception) {
+            Log.e("ReportRepository", "마커 조회 실패", e)
+            null
+        }
     }
 }

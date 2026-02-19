@@ -76,7 +76,7 @@ interface MypageApiService {
     suspend fun getMyReportsExpired(): MyReportListResponse
 
     @POST("api/mypage/reports/{reportId}/expired")
-    suspend fun deleteReport(@Path("reportId") reportId: Long): com.example.fillin.data.model.auth.ApiResponse
+    suspend fun deleteReport(@Path("reportId") reportId: Long): com.example.fillin.data.model.auth.ApiResponse<Unit>
 
     @GET("api/mypage/reports/like")
     suspend fun getLikedReports(): MyReportListResponse

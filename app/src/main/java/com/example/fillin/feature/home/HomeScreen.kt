@@ -1507,6 +1507,7 @@ fun HomeScreen(
         // 지도
         MapContent(
             modifier = Modifier.fillMaxSize(),
+            viewModel = reportViewModel,
             onMapReady = { map ->
                 naverMap = map
                 // 초기 줌 레벨 설정
