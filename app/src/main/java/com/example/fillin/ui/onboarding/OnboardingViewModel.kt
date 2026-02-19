@@ -14,8 +14,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
+import com.example.fillin.utils.PermissionUtils
 
 sealed class OnboardingNavEvent {
     data object GoTerms : OnboardingNavEvent()
@@ -25,7 +27,9 @@ sealed class OnboardingNavEvent {
 }
 
 data class OnboardingUiState(
-    val isLoading: Boolean = false
+    val isLoading: Boolean = false,
+    val nicknameError: String? = null,
+    val emailError: String? = null
 )
 
 class OnboardingViewModel(
@@ -39,6 +43,14 @@ class OnboardingViewModel(
 
     private val _navEvents = Channel<OnboardingNavEvent>(Channel.BUFFERED)
     val navEvents: Flow<OnboardingNavEvent> = _navEvents.receiveAsFlow()
+
+    fun clearNicknameError() {
+        _uiState.update { it.copy(nicknameError = null) }
+    }
+
+    fun clearEmailError() {
+        _uiState.update { it.copy(emailError = null) }
+    }
 
     fun completeOnboarding(
         nickname: String,
@@ -85,7 +97,18 @@ class OnboardingViewModel(
                         is HttpException -> ApiErrorParser.getMessage(e, "온보딩 완료에 실패했어요.")
                         else -> e.message ?: "온보딩 완료에 실패했어요."
                     }
-                    _navEvents.send(OnboardingNavEvent.ShowError(msg))
+
+                    _uiState.update { state ->
+                        state.copy(
+                            isLoading = false,
+                            nicknameError = if (msg.contains("닉네임")) msg else null,
+                            emailError = if (msg.contains("이메일")) msg else null
+                        )
+                    }
+
+                    if (!msg.contains("닉네임") && !msg.contains("이메일")) {
+                        _navEvents.send(OnboardingNavEvent.ShowError(msg))
+                    }
                 }
             )
 
@@ -94,10 +117,10 @@ class OnboardingViewModel(
     }
 
     private suspend fun routeAfterAuth() {
-        val isPermissionGranted = appPreferences.isPermissionGrantedFlow.first()
+        val hasActualPermission = PermissionUtils.hasLocationPermissions(context)
 
         when {
-            !isPermissionGranted -> _navEvents.send(OnboardingNavEvent.GoPermissions)
+            !hasActualPermission -> _navEvents.send(OnboardingNavEvent.GoPermissions)
             else -> _navEvents.send(OnboardingNavEvent.GoAfterLoginSplash)
         }
     }

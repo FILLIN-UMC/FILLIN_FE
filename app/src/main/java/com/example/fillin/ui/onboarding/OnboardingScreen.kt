@@ -77,7 +77,10 @@ fun OnboardingScreen(
 
     OnboardingContent(
         currentStep = step,
+        uiState = uiState,
         onStepChange = { step = it },
+        onNicknameChange = { viewModel.clearNicknameError() },
+        onEmailChange = { viewModel.clearEmailError() },
         isLoading = uiState.isLoading,
         onComplete = { nickname, email, service, location, marketing ->
             viewModel.completeOnboarding(nickname, email, service, location, marketing)
@@ -88,7 +91,10 @@ fun OnboardingScreen(
 @Composable
 fun OnboardingContent(
     currentStep: Int,
+    uiState: OnboardingUiState,
     onStepChange: (Int) -> Unit,
+    onNicknameChange: () -> Unit,
+    onEmailChange: () -> Unit,
     isLoading: Boolean,
     onComplete: (String, String, Boolean, Boolean, Boolean) -> Unit
 ) {
@@ -143,6 +149,7 @@ fun OnboardingContent(
 
                     Spacer(Modifier.weight(1f))
 
+                    // ✅ 에러가 났던 OnboardingTermsRow 호출 부분
                     OnboardingTermsRow(
                         checked = agreeService,
                         text = "[필수] 필인 지도 서비스 이용약관",
@@ -184,15 +191,24 @@ fun OnboardingContent(
 
                     OutlinedTextField(
                         value = nickname,
-                        onValueChange = { nickname = it },
+                        onValueChange = {
+                            nickname = it
+                            onNicknameChange()
+                        },
                         label = { Text("닉네임") },
+                        isError = uiState.nicknameError != null,
+                        supportingText = {
+                            if (uiState.nicknameError != null) {
+                                Text(text = uiState.nicknameError!!, color = Color.Red)
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = primaryBlue,
                             unfocusedBorderColor = lightGray,
-                            focusedLabelColor = primaryBlue
+                            errorBorderColor = Color.Red
                         )
                     )
 
@@ -200,8 +216,17 @@ fun OnboardingContent(
 
                     OutlinedTextField(
                         value = email,
-                        onValueChange = { email = it },
+                        onValueChange = {
+                            email = it
+                            onEmailChange()
+                        },
                         label = { Text("이메일") },
+                        isError = uiState.emailError != null,
+                        supportingText = {
+                            if (uiState.emailError != null) {
+                                Text(text = uiState.emailError!!, color = Color.Red)
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
@@ -209,14 +234,13 @@ fun OnboardingContent(
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = primaryBlue,
                             unfocusedBorderColor = lightGray,
-                            focusedLabelColor = primaryBlue
+                            errorBorderColor = Color.Red
                         )
                     )
                 }
             }
         }
 
-        // ✅ 1단계, 2단계 공통으로 72dp 여백 적용
         Spacer(Modifier.height(72.dp))
 
         Button(
@@ -252,6 +276,7 @@ fun OnboardingContent(
     }
 }
 
+// ✅ 이 부분이 파일 하단에 꼭 있어야 에러가 나지 않습니다!
 @Composable
 private fun OnboardingTermsRow(
     checked: Boolean,
@@ -310,11 +335,27 @@ private fun OnboardingTermsRow(
 @Preview(showBackground = true, name = "1단계: 약관 동의", device = "spec:width=411dp,height=891dp")
 @Composable
 fun OnboardingStep0Preview() {
-    OnboardingContent(currentStep = 0, onStepChange = {}, isLoading = false, onComplete = { _, _, _, _, _ -> })
+    OnboardingContent(
+        currentStep = 0,
+        uiState = OnboardingUiState(),
+        onStepChange = {},
+        onNicknameChange = {},
+        onEmailChange = {},
+        isLoading = false,
+        onComplete = { _, _, _, _, _ -> }
+    )
 }
 
 @Preview(showBackground = true, name = "2단계: 정보 입력", device = "spec:width=411dp,height=891dp")
 @Composable
 fun OnboardingStep1Preview() {
-    OnboardingContent(currentStep = 1, onStepChange = {}, isLoading = false, onComplete = { _, _, _, _, _ -> })
+    OnboardingContent(
+        currentStep = 1,
+        uiState = OnboardingUiState(nicknameError = "중복된 닉네임입니다."),
+        onStepChange = {},
+        onNicknameChange = {},
+        onEmailChange = {},
+        isLoading = false,
+        onComplete = { _, _, _, _, _ -> }
+    )
 }
