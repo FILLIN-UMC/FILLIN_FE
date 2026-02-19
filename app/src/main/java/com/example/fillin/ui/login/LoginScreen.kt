@@ -15,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
@@ -125,6 +126,7 @@ fun LoginScreenContent(
                     contentDescription = "Kakao Login",
                     modifier = Modifier
                         .size(80.dp)
+                        .clip(CircleShape)
                         .clickable { onKakaoLogin() },
                     contentScale = ContentScale.Fit
                 )
@@ -134,6 +136,7 @@ fun LoginScreenContent(
                     contentDescription = "Google Login",
                     modifier = Modifier
                         .size(80.dp)
+                        .clip(CircleShape)
                         .clickable { onGoogleLogin() },
                     contentScale = ContentScale.Fit
                 )
