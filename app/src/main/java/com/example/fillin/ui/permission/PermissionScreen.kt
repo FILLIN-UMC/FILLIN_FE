@@ -18,12 +18,7 @@ import androidx.compose.material.icons.filled.Camera
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,14 +27,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
+import androidx.navigation.compose.rememberNavController
 import com.example.fillin.R
 import com.example.fillin.data.AppPreferences
 import com.example.fillin.navigation.Screen
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.Image
+import androidx.compose.ui.unit.sp
 
 @Composable
 fun PermissionScreen(
@@ -50,12 +50,10 @@ fun PermissionScreen(
     val activity = context as? androidx.activity.ComponentActivity
     val scope = rememberCoroutineScope()
 
-    // 요청할 권한 목록 (POST_NOTIFICATIONS 제외)
     val permissionsToRequest = remember {
         buildList {
             add(Manifest.permission.ACCESS_FINE_LOCATION)
             add(Manifest.permission.CAMERA)
-
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 add(Manifest.permission.READ_MEDIA_IMAGES)
             } else {
@@ -69,16 +67,9 @@ fun PermissionScreen(
         val basicPermissionsGranted = permissionsToRequest.all {
             ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
         }
-
         val notificationGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-        } else {
-            true // Android 12 이하는 알림 권한이 필요 없음
-        }
-        
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        } else true
         return basicPermissionsGranted && notificationGranted
     }
 
@@ -86,81 +77,52 @@ fun PermissionScreen(
         scope.launch {
             val allGranted = isAllGranted()
             appPreferences.setPermissionGranted(allGranted)
-
             if (allGranted) {
                 navController.navigate(Screen.AfterLoginSplash.route) {
                     popUpTo(Screen.Permission.route) { inclusive = true }
                     launchSingleTop = true
                 }
             } else {
-                // ✅ 거부 시에는 스플래시로 보내지 말고 여기서 머무르기
                 Toast.makeText(context, "권한을 허용해야 서비스를 이용할 수 있어요.", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    // 권한이 영구적으로 거부되었는지 확인
-    fun shouldShowRationale(permission: String): Boolean {
-        return activity?.let {
-            ActivityCompat.shouldShowRequestPermissionRationale(it, permission)
-        } ?: false
-    }
-
-    // 권한이 영구적으로 거부되었는지 확인 (모든 권한 중 하나라도)
-    fun hasPermanentlyDeniedPermissions(): Boolean {
-        return permissionsToRequest.any { permission ->
-            ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED &&
-            !shouldShowRationale(permission)
-        }
-    }
-
-    // 앱 설정으로 이동하는 launcher
-    val settingsLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        // 설정에서 돌아왔을 때 권한 상태 확인
+    val settingsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         checkAllPermissionsAndNavigate()
     }
 
-    // 알림 권한은 별도로 요청 (Android 13+)
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         checkAllPermissionsAndNavigate()
     }
 
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { result ->
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         val allGranted = result.values.all { it }
-        
-        // 권한이 거부되었고, 더 이상 요청할 수 없는 경우(영구 거부) 설정 화면으로 이동
-        if (!allGranted && hasPermanentlyDeniedPermissions()) {
+        if (!allGranted && permissionsToRequest.any { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED && !ActivityCompat.shouldShowRequestPermissionRationale(activity!!, it) }) {
             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                 data = Uri.fromParts("package", context.packageName, null)
             }
             settingsLauncher.launch(intent)
             return@rememberLauncherForActivityResult
         }
-        
-        // 위치/카메라/사진 권한이 모두 허용되었으면, 알림 권한 요청
+
         if (allGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val notificationGranted = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-            
-            if (!notificationGranted) {
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            } else {
-                checkAllPermissionsAndNavigate()
-            }
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
             checkAllPermissionsAndNavigate()
         }
     }
 
-    // 색상 정의 (시안 기준)
+    // ✅ UI 부분만 담당하는 Content 호출
+    PermissionContent(
+        onConfirmClick = { launcher.launch(permissionsToRequest) }
+    )
+}
+
+@Composable
+fun PermissionContent(
+    onConfirmClick: () -> Unit
+) {
     val primaryBlue = Color(0xFF4A90E2)
     val logoBlue = Color(0xFF7DB7F0)
     val cardGray = Color(0xFFF0F3F6)
@@ -169,38 +131,33 @@ fun PermissionScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(Color.White)
+            .navigationBarsPadding()
             .padding(horizontal = 24.dp)
     ) {
-        Spacer(Modifier.height(72.dp))
+        Spacer(Modifier.height(100.dp))
 
-        // 상단 로고
-        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Box(
-                modifier = Modifier
-                    .size(120.dp)
-                    .clip(CircleShape)
-                    .background(logoBlue),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_fillin_logo),
-                    contentDescription = "FILLIN Logo",
-                    tint = Color.Unspecified,
-                    modifier = Modifier.size(70.dp)
-                )
-            }
-        }
+        Image(
+            painter = painterResource(R.drawable.img_logo_round), // 온보딩에서 쓴 로고 리소스
+            contentDescription = "FILLIN Logo",
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally),
+            contentScale = androidx.compose.ui.layout.ContentScale.Fit
+        )
 
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(20.dp))
 
         Text(
             text = "편리한 서비스 제공을 위해\n다음 접근 권한 허용이 필요해요.",
-            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+            style = MaterialTheme.typography.headlineSmall.copy(
+                fontSize = 22.sp,
+                fontWeight = FontWeight.SemiBold
+            ),
             modifier = Modifier.fillMaxWidth(),
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            textAlign = TextAlign.Center
         )
 
-        Spacer(Modifier.height(34.dp))
+        Spacer(Modifier.height(58.dp))
 
         PermissionCard(
             icon = { Icon(Icons.Filled.LocationOn, null, tint = Color.White) },
@@ -240,31 +197,27 @@ fun PermissionScreen(
             cardColor = cardGray
         )
 
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(72.dp))
 
         Button(
-            onClick = {
-                // "확인" 버튼을 누르면 무조건 권한 요청 시도
-                // 이미 권한이 허용되어 있어도 다시 요청 시도 (시스템이 팝업을 띄우지 않을 수 있음)
-                // 권한이 영구적으로 거부된 경우는 권한 요청 결과에서 처리
-                
-                // 권한 요청 (이미 허용된 권한은 시스템이 팝업을 띄우지 않지만, 요청은 시도)
-                launcher.launch(permissionsToRequest)
-            },
+            onClick = onConfirmClick,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(64.dp),
+                .height(53.dp), // 온보딩 버튼과 통일감 있게 수정 (원래 64dp)
             shape = RoundedCornerShape(32.dp),
             colors = ButtonDefaults.buttonColors(containerColor = primaryBlue)
         ) {
             Text(
                 text = "확인",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 18.sp
+                ),
                 color = Color.White
             )
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(18.dp))
     }
 }
 
@@ -291,24 +244,20 @@ private fun PermissionCard(
                     .clip(CircleShape)
                     .background(iconCircleColor),
                 contentAlignment = Alignment.Center
-            ) {
-                icon()
-            }
-
+            ) { icon() }
             Spacer(Modifier.width(14.dp))
-
             Column {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
+                Text(text = title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    text = desc,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF666666)
-                )
+                Text(text = desc, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF666666))
             }
         }
     }
+}
+
+// --- 프리뷰 추가 ---
+@Preview(showBackground = true, name = "권한 안내 화면", device = "spec:width=411dp,height=891dp")
+@Composable
+fun PermissionScreenPreview() {
+    PermissionContent(onConfirmClick = {})
 }

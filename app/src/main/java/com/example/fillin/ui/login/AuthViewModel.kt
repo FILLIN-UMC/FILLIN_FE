@@ -25,6 +25,7 @@ import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import retrofit2.HttpException
+import com.example.fillin.utils.PermissionUtils
 
 sealed class AuthNavEvent {
     data object GoTerms : AuthNavEvent()
@@ -40,6 +41,7 @@ data class AuthUiState(
 )
 
 class AuthViewModel(
+    private val context: Context,
     private val appPreferences: AppPreferences,
     private val authRepository: AuthRepository
 ) : ViewModel() {
@@ -73,6 +75,8 @@ class AuthViewModel(
                         _navEvents.send(AuthNavEvent.GoOnboarding)
                     } else {
                         appPreferences.setLoggedIn(true)
+                        appPreferences.setTermsAccepted(true)
+
                         routeAfterAuth()
                     }
                 },
@@ -125,6 +129,8 @@ class AuthViewModel(
                             _navEvents.send(AuthNavEvent.GoOnboarding)
                         } else {
                             appPreferences.setLoggedIn(true)
+                            appPreferences.setTermsAccepted(true)
+
                             routeAfterAuth()
                         }
                     },
@@ -183,11 +189,12 @@ class AuthViewModel(
     /** 약관/권한 상태에 따라 다음 화면 분기 */
     private suspend fun routeAfterAuth() {
         val isTermsAccepted = appPreferences.isTermsAcceptedFlow.first()
-        val isPermissionGranted = appPreferences.isPermissionGrantedFlow.first()
+
+        val hasActualPermission = PermissionUtils.hasLocationPermissions(context)
 
         when {
             !isTermsAccepted -> _navEvents.send(AuthNavEvent.GoTerms)
-            !isPermissionGranted -> _navEvents.send(AuthNavEvent.GoPermissions)
+            !hasActualPermission -> _navEvents.send(AuthNavEvent.GoPermissions)
             else -> _navEvents.send(AuthNavEvent.GoAfterLoginSplash)
         }
     }

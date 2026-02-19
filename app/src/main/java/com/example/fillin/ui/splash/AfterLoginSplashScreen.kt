@@ -24,12 +24,15 @@ import com.example.fillin.navigation.Screen
 import com.example.fillin.ui.components.FillinBlueGradientBackground
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import com.example.fillin.utils.PermissionUtils
 
 @Composable
 fun AfterLoginSplashScreen(
     navController: NavController,
     appPreferences: AppPreferences
 ) {
+    val context = LocalContext.current
+
     // 화면 진입 자체 확인용 로그
     Log.d("LOGIN_FLOW", "Entered AfterLoginSplashScreen")
 
@@ -38,17 +41,17 @@ fun AfterLoginSplashScreen(
 
         val isLoggedIn = appPreferences.isLoggedInFlow.first()
         val isTermsAccepted = appPreferences.isTermsAcceptedFlow.first()
-        val isPermissionGranted = appPreferences.isPermissionGrantedFlow.first()
+        val hasActualPermission = PermissionUtils.hasLocationPermissions(context)
 
         Log.d(
             "LOGIN_FLOW",
-            "values -> loggedIn=$isLoggedIn, terms=$isTermsAccepted, permission=$isPermissionGranted"
+            "values -> loggedIn=$isLoggedIn, terms=$isTermsAccepted, actualPermission=$hasActualPermission"
         )
 
         val nextRoute = when {
             !isLoggedIn -> Screen.Login.route
-            !isTermsAccepted -> Screen.Terms.route
-            !isPermissionGranted -> Screen.Permission.route
+            !isTermsAccepted -> Screen.Onboarding.route
+            !hasActualPermission -> Screen.Permission.route
             else -> Screen.Main.route
         }
 

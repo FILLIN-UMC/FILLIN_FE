@@ -7,10 +7,6 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
-/**
- * FILLIN 백엔드 API용 Retrofit 클라이언트
- * Base URL: https://api.fillin.site
- */
 object RetrofitClient {
     private const val BASE_URL = "https://api.fillin.site/"
     private const val LOG_TAG = "FILLIN_API"
@@ -19,11 +15,11 @@ object RetrofitClient {
         val appContext = context.applicationContext
         val builder = OkHttpClient.Builder()
             .addInterceptor(AuthTokenInterceptor(appContext))
+            .authenticator(TokenAuthenticator(appContext))
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
 
-        // 디버그: 요청/응답 로깅 (Logcat에서 확인 가능)
         if (com.example.fillin.BuildConfig.DEBUG) {
             builder.addInterceptor(
                 HttpLoggingInterceptor { message -> Log.d(LOG_TAG, message) }
