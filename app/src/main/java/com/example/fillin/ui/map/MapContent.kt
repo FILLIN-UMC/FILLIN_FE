@@ -19,6 +19,9 @@ import com.naver.maps.map.MapView
 import com.naver.maps.map.NaverMap
 import com.naver.maps.map.overlay.Marker
 import com.naver.maps.map.overlay.OverlayImage
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun MapContent(
@@ -36,6 +39,13 @@ fun MapContent(
     var naverMapInstance by remember { mutableStateOf<NaverMap?>(null) }
     val activeMarkers = remember { mutableListOf<Marker>() }
 
+    LaunchedEffect(Unit) {
+        viewModel?.clearMarkers() // ViewModel에 이 함수를 만들어야 합니다 (아래 참고)
+    }
+
+    val scope = rememberCoroutineScope()
+    var debounceJob by remember { mutableStateOf<Job?>(null) }
+
     // 2. [핵심] 지도가 준비되었을 때 실행될 로직을 LaunchedEffect로 분리
     // 이렇게 하면 viewModel 접근 시 오류가 나지 않습니다.
     LaunchedEffect(mapView) {
@@ -48,14 +58,21 @@ fun MapContent(
 
             // 카메라 정지 시 리스너 설정
             naverMap.addOnCameraIdleListener {
-                val pos = naverMap.cameraPosition.target
-                val isCityHall = Math.abs(pos.latitude - 37.5666) < 0.001 &&
-                        Math.abs(pos.longitude - 126.9784) < 0.001
+                // 📍 [핵심] 이전 예약된 조회가 있다면 취소합니다.
+                debounceJob?.cancel()
 
-                if (!isCityHall) {
-                    Log.d("MapContent", "카메라 정지: 데이터 조회 시작")
-                    // 여기서 viewModel에 직접 접근해도 에러가 나지 않습니다.
-                    fetchMarkersInView(naverMap, viewModel)
+                // 📍 300ms(0.3초) 동안 카메라가 조용하면 그때 비로소 API를 호출합니다.
+                debounceJob = scope.launch {
+                    delay(1500)
+
+                    val pos = naverMap.cameraPosition.target
+                    val isCityHall = Math.abs(pos.latitude - 37.5666) < 0.001 &&
+                            Math.abs(pos.longitude - 126.9784) < 0.001
+
+                    if (!isCityHall) {
+                        Log.d("MapContent", "카메라가 완전히 정착했습니다. 데이터 조회를 시작합니다.")
+                        fetchMarkersInView(naverMap, viewModel)
+                    }
                 }
             }
             onMapReady(naverMap)
@@ -98,15 +115,26 @@ fun MapContent(
                 Lifecycle.Event.ON_RESUME -> mapView.onResume()
                 Lifecycle.Event.ON_PAUSE -> mapView.onPause()
                 Lifecycle.Event.ON_STOP -> mapView.onStop()
-                // ON_DESTROY는 호출하지 않음 (객체 보존)
                 else -> {}
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
+
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            // 화면을 나갈 때 지도에서 마커만 일시적으로 제거
-            activeMarkers.forEach { it.map = null }
+
+            // 📍 [핵심] 화면을 나갈 때 지도의 상태를 '백지상태'로 만듭니다.
+            naverMapInstance?.let { map ->
+                // 1. 모든 마커와 정보창을 지도에서 즉시 제거
+                activeMarkers.forEach { it.map = null }
+
+                // 2. 만약 다른 리스너들이 남아있다면 여기서 제거 (선택 사항)
+                // map.onCameraIdleListener = null
+            }
+            activeMarkers.clear()
+
+            // 📍 [팁] 지도가 너무 뜬금없는 곳을 보고 있지 않게 하고 싶다면
+            // 여기서 카메라를 아주 살짝 투명하게 하거나 가리는 처리를 할 수도 있습니다.
         }
     }
 

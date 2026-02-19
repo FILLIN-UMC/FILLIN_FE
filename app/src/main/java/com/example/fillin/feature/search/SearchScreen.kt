@@ -319,7 +319,22 @@ private fun SearchScreenContent(
                                     hotReports = uiState.hotReports,
                                     hotError = uiState.hotError,
                                     isLoading = uiState.isHotLoading,
-                                    onClickHotReport = onClickHotReport,
+                                    onClickHotReport = { item ->
+                                        // 1. 기존 로직: 상세 정보 로드 및 상태 업데이트
+                                        onClickHotReport(item)
+
+                                        // 2. 📍 추가 로직: 카드 클릭 시 해당 위치로 카메라 이동
+                                        val lat = item.latitude
+                                        val lon = item.longitude
+
+                                        if (lat != 0.0 && lon != 0.0) { // 좌표가 유효한 경우에만 이동
+                                            naverMap?.let { map ->
+                                                val cameraUpdate = CameraUpdate.scrollTo(LatLng(lat, lon))
+                                                    .animate(CameraAnimation.Easing, 600) // 0.6초 동안 부드럽게 이동
+                                                map.moveCamera(cameraUpdate)
+                                            }
+                                        }
+                                    },
                                     onEmptySpaceClick = handleBackgroundTap,
                                     contentPadding = listContentPadding
                                 )
@@ -1204,16 +1219,16 @@ private fun MapOverlay(
                         }
                     }
 
-                    val firstValidItem = results.firstOrNull {
-                        it.y?.toDoubleOrNull() != null && it.x?.toDoubleOrNull() != null
-                    }
-
-                    firstValidItem?.let { item ->
-                        val cameraUpdate = CameraUpdate.scrollTo(
-                            LatLng(item.y!!.toDouble(), item.x!!.toDouble())
-                        ).animate(CameraAnimation.Easing)
-                        map.moveCamera(cameraUpdate)
-                    }
+//                    val firstValidItem = results.firstOrNull {
+//                        it.y?.toDoubleOrNull() != null && it.x?.toDoubleOrNull() != null
+//                    }
+//
+//                    firstValidItem?.let { item ->
+//                        val cameraUpdate = CameraUpdate.scrollTo(
+//                            LatLng(item.y!!.toDouble(), item.x!!.toDouble())
+//                        ).animate(CameraAnimation.Easing)
+//                        map.moveCamera(cameraUpdate)
+//                    }
                 }
             }
         }

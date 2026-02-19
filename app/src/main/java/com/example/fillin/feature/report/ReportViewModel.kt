@@ -204,6 +204,10 @@ class ReportViewModel(private val repository: ReportRepository) : ViewModel() {
     }
 
     fun fetchMapMarkers(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double) {
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastRequestTime < 1000) return
+        lastRequestTime = currentTime
+
         viewModelScope.launch {
             Log.d("ReportViewModel", "마커 요청 범위: $minLat, $maxLat, $minLon, $maxLon")
             val markers = repository.getMapMarkers(minLat, maxLat, minLon, maxLon)
@@ -229,5 +233,11 @@ class ReportViewModel(private val repository: ReportRepository) : ViewModel() {
                 mapMarkers = finalMarkers
             }
         }
+    }
+
+    private var lastRequestTime = 0L
+
+    fun clearMarkers() {
+        mapMarkers = emptyList()
     }
 }
