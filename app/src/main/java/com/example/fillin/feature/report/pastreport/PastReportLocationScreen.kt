@@ -147,8 +147,11 @@ fun PastReportLocationScreen(
                     text = "지난 상황 제보",
                     modifier = Modifier.weight(1f),
                     textAlign = TextAlign.Center,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleMedium // 텍스트 스타일 통일감 부여
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.SemiBold, // SemiBold 적용
+                        fontSize = 20.sp,                // 20sp 적용
+                        letterSpacing = (-0.5).sp        // (팁) 글자 크기가 커지면 자간을 살짝 줄여야 더 세련돼 보입니다
+                    )
                 )
                 // 아이콘 크기(24dp) + 패딩 등을 고려하여 균형을 맞추기 위한 Spacer
                 Spacer(Modifier.size(48.dp))
