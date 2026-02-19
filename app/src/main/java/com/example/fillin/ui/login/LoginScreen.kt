@@ -8,7 +8,7 @@ import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape // ✅ 완전한 원형을 위해 추가
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -17,10 +17,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.layout.ContentScale // ✅ 이미지 비율 유지를 위해 추가
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.tooling.preview.Preview // 추가
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -69,9 +70,7 @@ fun LoginScreen(
                         launchSingleTop = true
                     }
                 }
-                AuthNavEvent.Logout -> {
-                    // 로그인 화면에 이미 있으므로 아무 동작도 하지 않음
-                }
+                AuthNavEvent.Logout -> {}
                 is AuthNavEvent.ShowError -> {
                     Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
                 }
@@ -79,70 +78,79 @@ fun LoginScreen(
         }
     }
 
+    // 실제 UI 컴포저블에 로직 전달
+    LoginScreenContent(
+        onKakaoLogin = {
+            if (activity != null) authViewModel.loginWithKakao(context, activity)
+            else Toast.makeText(context, "Activity를 찾을 수 없어요.", Toast.LENGTH_SHORT).show()
+        },
+        onGoogleLogin = {
+            if (activity != null) {
+                authViewModel.loginWithGoogle(
+                    activity = activity,
+                    webClientId = GoogleConfig.WEB_CLIENT_ID
+                )
+            } else {
+                Toast.makeText(context, "Activity를 찾을 수 없어요.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    )
+}
+
+@Composable
+fun LoginScreenContent(
+    onKakaoLogin: () -> Unit,
+    onGoogleLogin: () -> Unit
+) {
     FillinBlueGradientBackground {
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(360.dp))
 
-            // ✅ 로고: 색상을 쨍한 하얀색으로 입히고 비율을 맞춤
             Image(
-                painter = painterResource(R.drawable.ic_fillin_logo),
-                contentDescription = "FILLIN Logo",
-                modifier = Modifier.size(180.dp),
-                colorFilter = ColorFilter.tint(Color.White),
-                contentScale = ContentScale.Fit // 이미지 왜곡 방지
+                painter = painterResource(R.drawable.img_logo),
+                contentDescription = "FILLIN Logo"
             )
 
             Spacer(modifier = Modifier.weight(1f))
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(28.dp),
+                horizontalArrangement = Arrangement.spacedBy(0.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconCircleButton(
-                    iconRes = R.drawable.ic_kakao,
-                    onClick = {
-                        if (activity == null) {
-                            Toast.makeText(context, "Activity를 찾을 수 없어요.", Toast.LENGTH_SHORT).show()
-                            return@IconCircleButton
-                        }
-                        authViewModel.loginWithKakao(context, activity)
-                    }
+                Image(
+                    painter = painterResource(R.drawable.btn_kakao_login),
+                    contentDescription = "Kakao Login",
+                    modifier = Modifier
+                        .size(80.dp)
+                        .clickable { onKakaoLogin() },
+                    contentScale = ContentScale.Fit
                 )
 
-                IconCircleButton(
-                    iconRes = R.drawable.ic_google,
-                    onClick = {
-                        if (activity == null) {
-                            Toast.makeText(context, "Activity를 찾을 수 없어요.", Toast.LENGTH_SHORT).show()
-                            return@IconCircleButton
-                        }
-                        authViewModel.loginWithGoogle(
-                            activity = activity,
-                            webClientId = GoogleConfig.WEB_CLIENT_ID
-                        )
-                    }
+                Image(
+                    painter = painterResource(R.drawable.btn_google_login),
+                    contentDescription = "Google Login",
+                    modifier = Modifier
+                        .size(80.dp)
+                        .clickable { onGoogleLogin() },
+                    contentScale = ContentScale.Fit
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Text(
-                text = "로그인 안하고 구경할래요",
-                color = Color.White.copy(alpha = 0.8f), // 기획안처럼 약간 투명한 하얀색
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    textDecoration = TextDecoration.Underline
-                ),
-                modifier = Modifier.clickable {
-                    // 둘러보기 로직
-                }
-            )
-
-            Spacer(modifier = Modifier.height(64.dp))
+            Spacer(modifier = Modifier.height(144.dp))
         }
     }
+}
+    
+@Preview(showBackground = true)
+@Composable
+fun LoginScreenPreview() {
+    LoginScreenContent(
+        onKakaoLogin = {},
+        onGoogleLogin = {}
+    )
 }
 
 private fun Context.findActivity(): Activity? {
@@ -152,28 +160,4 @@ private fun Context.findActivity(): Activity? {
         ctx = ctx.baseContext
     }
     return null
-}
-
-@Composable
-private fun IconCircleButton(
-    iconRes: Int,
-    onClick: () -> Unit
-) {
-    Surface(
-        // ✅ shape를 CircleShape로 변경하여 완전한 원형 버튼으로 수정
-        shape = CircleShape, 
-        color = Color.White, // 배경색 강제 지정
-        tonalElevation = 0.dp,
-        shadowElevation = 2.dp, // 기획안은 그림자가 아주 연함
-        modifier = Modifier.size(64.dp), // 기획안 비율에 맞춰 소폭 조정
-        onClick = onClick
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Image(
-                painter = painterResource(iconRes),
-                contentDescription = null,
-                modifier = Modifier.size(30.dp) // 아이콘 크기 최적화
-            )
-        }
-    }
 }
