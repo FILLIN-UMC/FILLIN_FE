@@ -263,10 +263,10 @@ fun OnboardingContent(
                             isAnimating = true
 
                             agreeService = true
-                            delay(300L) // 0.2초 간격
+                            delay(500L) // 0.2초 간격
 
                             agreeLocationHistory = true
-                            delay(300L)
+                            delay(500L)
 
                             agreeMarketing = true
                             delay(300L) // 모든 체크가 끝난 걸 보여주기 위해 조금 더 대기
