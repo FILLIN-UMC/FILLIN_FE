@@ -1,6 +1,12 @@
 package com.example.fillin.ui.onboarding
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -10,25 +16,22 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.fillin.R
@@ -45,11 +48,13 @@ fun OnboardingScreen(
     val viewModel: OnboardingViewModel = viewModel(
         factory = OnboardingViewModelFactory(context, appPreferences)
     )
+    val uiState by viewModel.uiState.collectAsState()
+
+    var step by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
         viewModel.navEvents.collectLatest { event ->
             when (event) {
-                OnboardingNavEvent.GoTerms -> { /* 온보딩에서는 약관 이미 완료 */ }
                 OnboardingNavEvent.GoPermissions -> {
                     navController.navigate(Screen.Permission.route) {
                         popUpTo(Screen.Onboarding.route) { inclusive = true }
@@ -65,10 +70,28 @@ fun OnboardingScreen(
                 is OnboardingNavEvent.ShowError -> {
                     Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
                 }
+                else -> {}
             }
         }
     }
 
+    OnboardingContent(
+        currentStep = step,
+        onStepChange = { step = it },
+        isLoading = uiState.isLoading,
+        onComplete = { nickname, email, service, location, marketing ->
+            viewModel.completeOnboarding(nickname, email, service, location, marketing)
+        }
+    )
+}
+
+@Composable
+fun OnboardingContent(
+    currentStep: Int,
+    onStepChange: (Int) -> Unit,
+    isLoading: Boolean,
+    onComplete: (String, String, Boolean, Boolean, Boolean) -> Unit
+) {
     var nickname by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var agreeService by remember { mutableStateOf(false) }
@@ -79,133 +102,132 @@ fun OnboardingScreen(
     val lightGray = Color(0xFFBDBDBD)
     val chevronGray = Color(0xFF9E9E9E)
 
+    BackHandler(enabled = currentStep > 0) {
+        onStepChange(0)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(Color.White)
             .padding(horizontal = 24.dp)
     ) {
-        Spacer(Modifier.height(48.dp))
+        Spacer(Modifier.height(100.dp))
 
-        Box(
-            modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(100.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF7DB7F0)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_fillin_logo),
-                    contentDescription = "FILLIN Logo",
-                    tint = Color.Unspecified,
-                    modifier = Modifier.size(56.dp)
-                )
-            }
-        }
+        Image(
+            painter = painterResource(R.drawable.img_logo_round),
+            contentDescription = "FILLIN Logo",
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+            contentScale = ContentScale.Fit
+        )
 
         Spacer(Modifier.height(20.dp))
 
-        Text(
-            text = "서비스를 이용하기 위해\n정보를 입력해주세요.",
-            style = MaterialTheme.typography.headlineSmall.copy(
-                fontWeight = FontWeight.Bold
-            ),
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-        )
+        AnimatedContent(
+            targetState = currentStep,
+            modifier = Modifier.weight(1f),
+            transitionSpec = { fadeIn() togetherWith fadeOut() },
+            label = "StepContentAnim"
+        ) { step ->
+            Column(modifier = Modifier.fillMaxSize()) {
+                if (step == 0) {
+                    Text(
+                        text = "지도 서비스를 이용하기 위해 \n동의가 필요해요.",
+                        style = MaterialTheme.typography.headlineSmall.copy(
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center
+                    )
 
-        Spacer(Modifier.height(24.dp))
+                    Spacer(Modifier.weight(1f))
 
-        OutlinedTextField(
-            value = nickname,
-            onValueChange = { nickname = it },
-            label = { Text("닉네임") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = primaryBlue,
-                unfocusedBorderColor = lightGray,
-                focusedLabelColor = primaryBlue
-            )
-        )
+                    OnboardingTermsRow(
+                        checked = agreeService,
+                        text = "[필수] 필인 지도 서비스 이용약관",
+                        onToggle = { agreeService = !agreeService },
+                        primaryBlue = primaryBlue,
+                        lightGray = lightGray,
+                        chevronGray = chevronGray
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OnboardingTermsRow(
+                        checked = agreeLocationHistory,
+                        text = "[선택] 개인정보(이동이력) 수집 및 이용",
+                        onToggle = { agreeLocationHistory = !agreeLocationHistory },
+                        primaryBlue = primaryBlue,
+                        lightGray = lightGray,
+                        chevronGray = chevronGray
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OnboardingTermsRow(
+                        checked = agreeMarketing,
+                        text = "[선택] 마케팅 정보 수신 동의",
+                        onToggle = { agreeMarketing = !agreeMarketing },
+                        primaryBlue = primaryBlue,
+                        lightGray = lightGray,
+                        chevronGray = chevronGray
+                    )
+                } else {
+                    Text(
+                        text = "서비스를 이용하기 위해 \n정보를 입력해주세요.",
+                        style = MaterialTheme.typography.headlineSmall.copy(
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center
+                    )
 
-        Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.weight(1f))
 
-        OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
-            label = { Text("이메일") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-            shape = RoundedCornerShape(12.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = primaryBlue,
-                unfocusedBorderColor = lightGray,
-                focusedLabelColor = primaryBlue
-            )
-        )
+                    OutlinedTextField(
+                        value = nickname,
+                        onValueChange = { nickname = it },
+                        label = { Text("닉네임") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = primaryBlue,
+                            unfocusedBorderColor = lightGray,
+                            focusedLabelColor = primaryBlue
+                        )
+                    )
 
-        Spacer(Modifier.height(24.dp))
+                    Spacer(Modifier.height(16.dp))
 
-        OnboardingTermsRow(
-            checked = agreeService,
-            text = "[필수] 필인 지도 서비스 이용약관",
-            onToggle = { agreeService = !agreeService },
-            onOpen = { },
-            primaryBlue = primaryBlue,
-            lightGray = lightGray,
-            chevronGray = chevronGray
-        )
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = { email = it },
+                        label = { Text("이메일") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = primaryBlue,
+                            unfocusedBorderColor = lightGray,
+                            focusedLabelColor = primaryBlue
+                        )
+                    )
+                }
+            }
+        }
 
-        Spacer(Modifier.height(10.dp))
-
-        OnboardingTermsRow(
-            checked = agreeLocationHistory,
-            text = "[선택] 개인정보(이동이력) 수집 및 이용",
-            onToggle = { agreeLocationHistory = !agreeLocationHistory },
-            onOpen = { },
-            primaryBlue = primaryBlue,
-            lightGray = lightGray,
-            chevronGray = chevronGray
-        )
-
-        Spacer(Modifier.height(10.dp))
-
-        OnboardingTermsRow(
-            checked = agreeMarketing,
-            text = "[선택] 마케팅 정보 수신 동의",
-            onToggle = { agreeMarketing = !agreeMarketing },
-            onOpen = { },
-            primaryBlue = primaryBlue,
-            lightGray = lightGray,
-            chevronGray = chevronGray
-        )
-
-        Spacer(Modifier.weight(1f))
-
-        val isLoading = viewModel.uiState.collectAsState().value.isLoading
+        // ✅ 1단계, 2단계 공통으로 72dp 여백 적용
+        Spacer(Modifier.height(72.dp))
 
         Button(
             onClick = {
-                if (!isLoading) {
-                    viewModel.completeOnboarding(
-                        nickname = nickname,
-                        email = email,
-                        agreeService = agreeService,
-                        agreeLocationHistory = agreeLocationHistory,
-                        agreeMarketing = agreeMarketing
-                    )
-                }
+                if (currentStep == 0) onStepChange(1)
+                else onComplete(nickname, email, agreeService, agreeLocationHistory, agreeMarketing)
             },
-            enabled = !isLoading && agreeService,
+            enabled = !isLoading && (if (currentStep == 0) agreeService else nickname.isNotBlank()),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(64.dp),
+                .height(53.dp),
             shape = RoundedCornerShape(32.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = primaryBlue,
@@ -213,15 +235,14 @@ fun OnboardingScreen(
             )
         ) {
             if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    color = Color.White,
-                    strokeWidth = 2.dp
-                )
+                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
             } else {
                 Text(
-                    text = "완료",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    text = if (currentStep == 0) "다음" else "완료",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 20.sp,
+                    ),
                     color = Color.White
                 )
             }
@@ -236,7 +257,6 @@ private fun OnboardingTermsRow(
     checked: Boolean,
     text: String,
     onToggle: () -> Unit,
-    onOpen: () -> Unit,
     primaryBlue: Color,
     lightGray: Color,
     chevronGray: Color
@@ -271,8 +291,9 @@ private fun OnboardingTermsRow(
         Text(
             text = text,
             style = MaterialTheme.typography.titleMedium.copy(
-                fontWeight = FontWeight.SemiBold,
-                color = Color(0xFF444444)
+                fontWeight = FontWeight.Medium,
+                color = colorResource(R.color.grey5),
+                fontSize = 16.sp
             ),
             modifier = Modifier.weight(1f)
         )
@@ -281,9 +302,19 @@ private fun OnboardingTermsRow(
             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = "Open",
             tint = chevronGray,
-            modifier = Modifier
-                .size(26.dp)
-                .clickable { onOpen() }
+            modifier = Modifier.size(26.dp).clickable { /* 약관 보기 */ }
         )
     }
+}
+
+@Preview(showBackground = true, name = "1단계: 약관 동의", device = "spec:width=411dp,height=891dp")
+@Composable
+fun OnboardingStep0Preview() {
+    OnboardingContent(currentStep = 0, onStepChange = {}, isLoading = false, onComplete = { _, _, _, _, _ -> })
+}
+
+@Preview(showBackground = true, name = "2단계: 정보 입력", device = "spec:width=411dp,height=891dp")
+@Composable
+fun OnboardingStep1Preview() {
+    OnboardingContent(currentStep = 1, onStepChange = {}, isLoading = false, onComplete = { _, _, _, _, _ -> })
 }
